@@ -6,12 +6,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
     private var controllers: [UUID: NoteWindowController] = [:]
     private let closedNotesMenu = NSMenu(title: "Closed Notes")
 
-    /// Invisible parent for every note window. Stage Manager keeps child windows in their
-    /// parent's stage, so this makes all notes share one stage instead of each new note getting
-    /// its own (which pushes the others to the side strip). Its frame tracks the bounding box of
-    /// the notes (see `updateAnchorFrame`) because Stage Manager lays out the stage's thumbnail
-    /// around it. Moving it programmatically does not drag the child notes along.
-    private lazy var anchorWindow: NSWindow = {
+    /// Invisible parents for the note windows, one per display. Stage Manager keeps child
+    /// windows in their parent's stage, so this makes all notes on a display share one stage
+    /// instead of each new note getting its own (which pushes the others to the side strip).
+    /// A child window also lives in its parent's Space, and each display has its own Space, so a
+    /// note dragged to another display must switch to that display's anchor or it vanishes.
+    /// Each anchor's frame tracks the bounding box of its notes (see `layoutAnchors`) because
+    /// Stage Manager lays out the stage's thumbnail around it.
+    private var anchors: [CGDirectDisplayID: NSWindow] = [:]
+
+    private func makeAnchor() -> NSWindow {
         let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1, height: 1),
                          styleMask: [.borderless], backing: .buffered, defer: false)
         w.isReleasedWhenClosed = false
@@ -23,7 +27,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
         w.isExcludedFromWindowsMenu = true
         w.collectionBehavior = [.ignoresCycle]
         return w
-    }()
+    }
 
     private var keyController: NoteWindowController? {
         NSApp.keyWindow?.windowController as? NoteWindowController
@@ -40,6 +44,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
             notes.forEach { show($0.id) }
         }
         NSApp.activate()
+        NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification,
+                                               object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.scheduleAnchorLayout() }
+        }
     }
 
     private var activeSince: Date?
@@ -78,55 +86,96 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
         controller.onClose = { [weak self] c in
             guard let self else { return }
             controllers[c.noteID] = nil
-            if controllers.isEmpty { anchorWindow.orderOut(nil) } else { updateAnchorFrame() }
+            scheduleAnchorLayout()
         }
         controller.onNewNote = { [weak self] in self?.newNote(nil) }
         controller.onBecomeKey = { [weak self] c in self?.raiseInStage(c.window) }
-        controller.onFrameChange = { [weak self] in self?.updateAnchorFrame() }
+        controller.onFrameChange = { [weak self] in self?.scheduleAnchorLayout() }
+        controller.onScreenChange = { [weak self] c in
+            if let window = c.window { self?.attachToAnchor(window) }
+        }
         controllers[id] = controller
         if let window = controller.window {
-            if !anchorWindow.isVisible { anchorWindow.orderFront(nil) }
-            anchorWindow.addChildWindow(window, ordered: .above)
-            updateAnchorFrame()
+            attachToAnchor(window)
+            scheduleAnchorLayout()
         }
         controller.focus()
     }
 
-    private var anchorUpdatePending = false
+    private func displayID(of screen: NSScreen) -> CGDirectDisplayID? {
+        screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID
+    }
+
+    /// The display a note belongs to: the one holding most of it, else the nearest sensible one.
+    private func screen(for window: NSWindow) -> NSScreen? {
+        window.screen ?? NSScreen.screens.max { a, b in
+            a.frame.intersection(window.frame).area < b.frame.intersection(window.frame).area
+        } ?? NSScreen.main
+    }
+
+    /// Makes `window` a child of its display's anchor, switching anchors if it changed displays.
+    /// Only re-parents (never moves an anchor), so it's safe to do in the middle of a drag.
+    private func attachToAnchor(_ window: NSWindow) {
+        guard let screen = screen(for: window), let id = displayID(of: screen) else { return }
+        let anchor: NSWindow
+        if let existing = anchors[id] {
+            anchor = existing
+        } else {
+            anchor = makeAnchor()
+            anchor.setFrame(window.frame, display: false)
+            anchors[id] = anchor
+        }
+        guard window.parent !== anchor else { return }
+        window.parent?.removeChildWindow(window)
+        if !anchor.isVisible { anchor.orderFront(nil) }
+        anchor.addChildWindow(window, ordered: .above)
+    }
+
+    private var anchorLayoutPending = false
     private var isMovingAnchor = false
 
-    /// Keeps the anchor covering exactly the area spanned by the open notes. Coalesced and
-    /// deferred until no mouse button is held: moving the anchor mid-drag fights the drag.
-    private func updateAnchorFrame() {
-        guard !isMovingAnchor, !anchorUpdatePending else { return }
-        anchorUpdatePending = true
+    /// Keeps each anchor covering exactly the area spanned by its notes. Coalesced and deferred
+    /// until no mouse button is held: moving an anchor mid-drag drags its children with it.
+    private func scheduleAnchorLayout() {
+        guard !isMovingAnchor, !anchorLayoutPending else { return }
+        anchorLayoutPending = true
         Task { @MainActor [weak self] in
             try? await Task.sleep(for: .milliseconds(100))
             guard let self else { return }
-            anchorUpdatePending = false
+            anchorLayoutPending = false
             if NSEvent.pressedMouseButtons != 0 {
-                updateAnchorFrame()
+                scheduleAnchorLayout()
             } else {
-                applyAnchorFrame()
+                layoutAnchors()
             }
         }
     }
 
-    private func applyAnchorFrame() {
+    private func layoutAnchors() {
         let windows = controllers.values.compactMap(\.window)
-        guard let first = windows.first else { return }
-        let union = windows.dropFirst().reduce(first.frame) { $0.union($1.frame) }
-        guard anchorWindow.frame != union else { return }
+        windows.forEach(attachToAnchor)
 
-        // Moving a parent window can drag its children along (and each child move would call
-        // back into here), so pin every note back to where it was.
-        let origins = windows.map { ($0, $0.frame.origin) }
-        isMovingAnchor = true
-        anchorWindow.setFrame(union, display: false)
-        for (window, origin) in origins where window.frame.origin != origin {
-            window.setFrameOrigin(origin)
+        for (id, anchor) in anchors {
+            let children = windows.filter { $0.parent === anchor }
+            guard let first = children.first else {
+                // No notes left on this display (or it was disconnected).
+                anchor.orderOut(nil)
+                anchors[id] = nil
+                continue
+            }
+            let union = children.dropFirst().reduce(first.frame) { $0.union($1.frame) }
+            guard anchor.frame != union else { continue }
+
+            // Moving a parent window can drag its children along (and each child move would call
+            // back into here), so pin every note back to where it was.
+            let origins = children.map { ($0, $0.frame.origin) }
+            isMovingAnchor = true
+            anchor.setFrame(union, display: false)
+            for (window, origin) in origins where window.frame.origin != origin {
+                window.setFrameOrigin(origin)
+            }
+            isMovingAnchor = false
         }
-        isMovingAnchor = false
     }
 
     /// Sibling child windows keep their attach order regardless of focus, so re-attach the
@@ -135,9 +184,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
     /// moment — never mid stage-switch, or the note can get adopted into another app's stage.
     private func raiseInStage(_ window: NSWindow?) {
         guard NSApp.isActive, let activeSince, Date().timeIntervalSince(activeSince) > 0.8 else { return }
-        guard let window, window.parent === anchorWindow, anchorWindow.childWindows?.last !== window else { return }
-        anchorWindow.removeChildWindow(window)
-        anchorWindow.addChildWindow(window, ordered: .above)
+        guard let window, let anchor = window.parent, anchors.values.contains(anchor),
+              anchor.childWindows?.last !== window else { return }
+        anchor.removeChildWindow(window)
+        anchor.addChildWindow(window, ordered: .above)
     }
 
     @objc func newNote(_ sender: Any?) {
@@ -387,4 +437,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
         item.submenu = menu
         return item
     }
+}
+
+private extension NSRect {
+    var area: CGFloat { isNull ? 0 : width * height }
 }

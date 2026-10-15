@@ -8,6 +8,7 @@ final class NoteWindowController: NSWindowController, NSWindowDelegate, NSTextVi
     var onNewNote: (() -> Void)?
     var onBecomeKey: ((NoteWindowController) -> Void)?
     var onFrameChange: (() -> Void)?
+    var onScreenChange: ((NoteWindowController) -> Void)?
 
     private let store: NoteStore
     private let textStorage = MarkdownTextStorage()
@@ -292,6 +293,7 @@ final class NoteWindowController: NSWindowController, NSWindowDelegate, NSTextVi
     func windowDidBecomeKey(_ notification: Notification) { onBecomeKey?(self) }
     func windowDidMove(_ notification: Notification) { saveFrame() }
     func windowDidResize(_ notification: Notification) { saveFrame() }
+    func windowDidChangeScreen(_ notification: Notification) { onScreenChange?(self) }
 
     private func saveFrame() {
         guard let frame = window?.frame else { return }
