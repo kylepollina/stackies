@@ -411,6 +411,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
             item("Bold", #selector(NoteTextView.toggleBold(_:)), "b"),
             item("Italic", #selector(NoteTextView.toggleItalic(_:)), "i"),
             item("Strikethrough", #selector(NoteTextView.toggleStrikethrough(_:)), "x", [.command, .shift]),
+            .separator(),
+            item("Move Up", #selector(NoteTextView.moveItemUp(_:)), String(UnicodeScalar(NSUpArrowFunctionKey)!)),
+            item("Move Down", #selector(NoteTextView.moveItemDown(_:)), String(UnicodeScalar(NSDownArrowFunctionKey)!)),
         ]))
 
         let colorItems = NoteColor.allCases.enumerated().map { index, color in

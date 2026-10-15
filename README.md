@@ -27,6 +27,7 @@ Notes are stored in `~/Library/Application Support/Stackies/notes.json`.
 | Toggle checklist | ⌘L |
 | Mark done | ⌘↩ |
 | Bold / Italic / Strikethrough | ⌘B / ⌘I / ⇧⌘X |
+| Move item (with subtasks) up / down | ⌘↑ / ⌘↓ |
 | Keep on top | ⌘P |
 | Note color | ⌘1–⌘7 (⌘0 for random) |
 | Delete note | ⇧⌘⌫ |

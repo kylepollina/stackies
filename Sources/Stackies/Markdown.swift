@@ -111,27 +111,32 @@ enum Markdown {
     /// The item on `line` plus the lines nested under it: every following line indented deeper,
     /// up to the first blank line or line at the same or a shallower indent.
     static func itemBlock(in ns: NSString, line: NSRange) -> NSRange {
-        func indentWidth(_ l: NSRange) -> Int {
-            var width = 0
-            for i in 0..<l.length {
-                switch ns.character(at: l.location + i) {
-                case 32: width += 1
-                case 9: width += 4
-                default: return width
-                }
-            }
-            return width
-        }
-        let base = indentWidth(line)
+        let base = indentWidth(in: ns, line: line)
         var end = line.upperBound
         while end < ns.length {
             let next = self.line(in: ns, at: end + 1)
-            guard next.location > end, next.length > 0,
-                  ns.substring(with: next).contains(where: { !$0.isWhitespace }),
-                  indentWidth(next) > base else { break }
+            guard next.location > end, !isBlank(in: ns, line: next),
+                  indentWidth(in: ns, line: next) > base else { break }
             end = next.upperBound
         }
         return NSRange(location: line.location, length: end - line.location)
+    }
+
+    /// Leading whitespace width, counting a tab as 4 spaces. Blank lines count as 0.
+    static func indentWidth(in ns: NSString, line: NSRange) -> Int {
+        var width = 0
+        for i in 0..<line.length {
+            switch ns.character(at: line.location + i) {
+            case 32: width += 1
+            case 9: width += 4
+            default: return width
+            }
+        }
+        return 0
+    }
+
+    static func isBlank(in ns: NSString, line: NSRange) -> Bool {
+        !ns.substring(with: line).contains { !$0.isWhitespace }
     }
 
     static func listPrefix(of line: String) -> ListPrefix? {

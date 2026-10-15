@@ -164,6 +164,12 @@ final class NoteWindowController: NSWindowController, NSWindowDelegate, NSTextVi
 
     private func configurePomodoro(_ window: NSWindow) {
         textView.onStartPomodoro = { [weak self] marker in self?.startPomodoro(marker: marker) }
+        textView.onWillMove = { [weak self] map in
+            // A moved item carries its running timer along.
+            guard let self, var p = pomodoro, p.phase == .focus, let moved = map(p.marker) else { return }
+            p.marker = moved
+            pomodoro = p
+        }
         textView.onWillEdit = { [weak self] range, newLength in
             // Keep the timer on its item when text above it grows or shrinks.
             guard let self, var p = pomodoro, p.phase == .focus, range.upperBound <= p.marker else { return }

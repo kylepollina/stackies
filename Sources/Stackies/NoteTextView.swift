@@ -263,6 +263,121 @@ final class NoteTextView: NSTextView {
                 select: NSRange(location: max(line.location, sel.location - n), length: 0))
     }
 
+    // MARK: - Moving items
+
+    /// Called before a move with a function mapping old text positions in the moved region to
+    /// their new positions, so things anchored in the text (like a running timer) can follow.
+    var onWillMove: (((Int) -> Int?) -> Void)?
+
+    @objc func moveItemUp(_ sender: Any?) { moveItem(up: true) }
+    @objc func moveItemDown(_ sender: Any?) { moveItem(up: false) }
+
+    /// Moves the caret's line and its subtasks past the neighboring item at the same level, or,
+    /// with no neighbor that way, out one level (above its parent / below its parent's subtasks).
+    private func moveItem(up: Bool) {
+        let sel = selectedRange()
+        let line = Markdown.line(in: ns, at: sel.location)
+        let depth = Markdown.indentWidth(in: ns, line: line)
+        let item = Markdown.isBlank(in: ns, line: line) ? line : Markdown.itemBlock(in: ns, line: line)
+        let column = sel.location - line.location
+
+        if up {
+            // Walk up past deeper lines (the previous sibling's subtasks) to a sibling or the parent.
+            var above = lineBefore(line)
+            while let a = above, Markdown.indentWidth(in: ns, line: a) > depth { above = lineBefore(a) }
+            guard let a = above else { NSSound.beep(); return }
+            let aDepth = Markdown.indentWidth(in: ns, line: a)
+            let between = NSRange(location: a.location, length: line.location - 1 - a.location)
+            if aDepth == depth {
+                swap(first: between, second: item, column: column, selectionLength: sel.length)
+            } else {
+                guard !Markdown.isBlank(in: ns, line: a) else { NSSound.beep(); return }
+                // First subtask: becomes its parent's previous sibling.
+                let (text, removed) = outdent(item, by: depth - aDepth)
+                let region = NSRange(location: a.location, length: item.upperBound - a.location)
+                let newText = text + "\n" + ns.substring(with: between)
+                let itemLength = (text as NSString).length
+                announceMove(old: ns.copy() as! NSString, pieces: [
+                    (item, a.location, removed),
+                    (between, a.location + itemLength + 1, []),
+                ])
+                replace(region, with: newText,
+                        select: NSRange(location: a.location + max(0, column - (removed.first ?? 0)), length: sel.length))
+            }
+        } else {
+            if let next = lineAfter(item), Markdown.indentWidth(in: ns, line: next) == depth,
+               depth == 0 || !Markdown.isBlank(in: ns, line: next) {
+                let nextBlock = Markdown.isBlank(in: ns, line: next) ? next : Markdown.itemBlock(in: ns, line: next)
+                swap(first: item, second: nextBlock, column: nil, selectionLength: sel.length,
+                     caretInSecond: false, caretColumn: column)
+            } else {
+                // Last subtask: steps out to its parent's level, right after the parent's group.
+                var parent = lineBefore(line)
+                while let p = parent, Markdown.isBlank(in: ns, line: p) || Markdown.indentWidth(in: ns, line: p) >= depth {
+                    parent = lineBefore(p)
+                }
+                guard depth > 0, let p = parent else { NSSound.beep(); return }
+                let (text, removed) = outdent(item, by: depth - Markdown.indentWidth(in: ns, line: p))
+                announceMove(old: ns.copy() as! NSString, pieces: [(item, item.location, removed)])
+                replace(item, with: text,
+                        select: NSRange(location: item.location + max(0, column - (removed.first ?? 0)), length: sel.length))
+            }
+        }
+    }
+
+    /// Swaps two adjacent blocks (`first` directly above `second`, one newline apart), keeping the
+    /// caret on the moved item.
+    private func swap(first: NSRange, second: NSRange, column: Int?, selectionLength: Int,
+                      caretInSecond: Bool = true, caretColumn: Int = 0) {
+        let firstText = ns.substring(with: first), secondText = ns.substring(with: second)
+        let region = NSRange(location: first.location, length: second.upperBound - first.location)
+        let secondLength = (secondText as NSString).length
+        announceMove(old: ns.copy() as! NSString, pieces: [
+            (second, first.location, []),
+            (first, first.location + secondLength + 1, []),
+        ])
+        // Moving up, the caret's item is `second` and lands first; moving down it's `first` and lands last.
+        let caret = caretInSecond ? first.location + (column ?? 0) : first.location + secondLength + 1 + caretColumn
+        replace(region, with: secondText + "\n" + firstText, select: NSRange(location: caret, length: selectionLength))
+    }
+
+    /// Removes up to `width` columns of indentation from each line of `range`.
+    /// Returns the new text and the number of characters removed from each line.
+    private func outdent(_ range: NSRange, by width: Int) -> (String, [Int]) {
+        var removed: [Int] = []
+        let lines = ns.substring(with: range).components(separatedBy: "\n").map { line -> String in
+            var taken = 0, count = 0
+            for c in line {
+                guard taken < width, c == " " || c == "\t" else { break }
+                taken += c == "\t" ? 4 : 1
+                count += 1
+            }
+            removed.append(count)
+            return String(line.dropFirst(count))
+        }
+        return (lines.joined(separator: "\n"), removed)
+    }
+
+    /// Reports where text moves: each piece's old range lands at a new location, minus the
+    /// characters removed from the start of each of its lines.
+    private func announceMove(old: NSString, pieces: [(old: NSRange, new: Int, removed: [Int])]) {
+        onWillMove? { pos in
+            guard let piece = pieces.first(where: { NSLocationInRange(pos, $0.old) }) else { return nil }
+            let before = old.substring(with: NSRange(location: piece.old.location, length: pos - piece.old.location))
+            let lineIndex = before.filter { $0 == "\n" }.count
+            let shift = piece.removed.prefix(lineIndex + 1).reduce(0, +)
+            return piece.new + (pos - piece.old.location) - shift
+        }
+    }
+
+    private func lineBefore(_ line: NSRange) -> NSRange? {
+        line.location == 0 ? nil : Markdown.line(in: ns, at: line.location - 1)
+    }
+
+    private func lineAfter(_ range: NSRange) -> NSRange? {
+        range.upperBound >= ns.length ? nil : Markdown.line(in: ns, at: range.upperBound + 1)
+    }
+
     // MARK: - Format menu commands
 
     @objc func toggleChecklist(_ sender: Any?) {
