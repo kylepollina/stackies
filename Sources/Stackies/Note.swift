@@ -48,6 +48,8 @@ struct Note: Codable, Identifiable {
     var isPinned = false
     /// Tucked away to a tab at the screen edge. Optional so notes saved before this existed still load.
     var tucked: Bool?
+    /// Where the user dragged the tucked tab along the screen edge (bottom y), if they did.
+    var tabY: Double?
     var created = Date()
     var modified = Date()
 

@@ -398,8 +398,13 @@ final class NoteWindowController: NSWindowController, NSWindowDelegate, NSTextVi
         let side = TuckTab.side
         let tab = TuckTab(title: Markdown.styledTitle(of: note?.text ?? ""), color: color, side: side)
         tab.onClick = { [weak self] in self?.untuck() }
-        // As tall as the note is wide, within reason.
-        tab.place(at: tabRect(near: saved, height: min(max(saved.width, 72), 320).rounded(), side: side))
+        tab.onMove = { [weak self] frame in
+            guard let self else { return }
+            store.update(noteID) { $0.tabY = frame.minY }
+        }
+        // As tall as the note is wide, within reason; where it was last dragged to, if anywhere.
+        tab.place(at: tabRect(near: saved, height: min(max(saved.width, 72), 320).rounded(), side: side,
+                              preferredY: note?.tabY.map { CGFloat($0) }))
         self.tab = tab
         onTuckChange?(self) // leaves the anchor so hiding it doesn't disturb the other notes
 
@@ -473,11 +478,11 @@ final class NoteWindowController: NSWindowController, NSWindowDelegate, NSTextVi
     }
 
     /// A spot on the screen edge level with the note, below any tabs already there.
-    private func tabRect(near frame: NSRect, height: CGFloat, side: TuckTab.Side) -> NSRect {
+    private func tabRect(near frame: NSRect, height: CGFloat, side: TuckTab.Side, preferredY: CGFloat? = nil) -> NSRect {
         let screen = (NSScreen.screens.first { $0.frame.intersects(frame) } ?? NSScreen.main)?.visibleFrame
             ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
         let x = side == .right ? screen.maxX - TuckTab.width : screen.minX
-        let y = min(max(frame.midY - height / 2, screen.minY + 8), screen.maxY - height - 8)
+        let y = min(max(preferredY ?? frame.midY - height / 2, screen.minY + 4), screen.maxY - height - 4)
         var rect = NSRect(x: x, y: y, width: TuckTab.width, height: height)
         let others = (otherTabFrames?() ?? []).filter { abs($0.minX - x) < TuckTab.width }
         for _ in 0..<others.count + 1 {

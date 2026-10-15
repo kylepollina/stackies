@@ -15,8 +15,11 @@ final class TuckTab: NSPanel {
     }
 
     var onClick: (() -> Void)?
+    /// Called with the new resting frame after the tab is dragged along the edge.
+    var onMove: ((NSRect) -> Void)?
     let side: Side
     private var restingFrame: NSRect = .zero
+    private var isHovered = false
 
     init(title: NSAttributedString, color: NoteColor, side: Side) {
         self.side = side
@@ -43,17 +46,35 @@ final class TuckTab: NSPanel {
 
     var resting: NSRect { restingFrame }
 
-    /// Slides a little further out from the edge while hovered.
-    func setHovered(_ hovered: Bool) {
+    /// The frame while hovered: slid a little further out from the edge.
+    private var hoverFrame: NSRect {
         var f = restingFrame
-        if hovered {
-            f.size.width = Self.hoverWidth
-            if side == .right { f.origin.x -= Self.hoverWidth - Self.width }
-        }
+        f.size.width = Self.hoverWidth
+        if side == .right { f.origin.x -= Self.hoverWidth - Self.width }
+        return f
+    }
+
+    /// Opens or closes the hover state from where the mouse actually is. Tracking-area
+    /// enter/exit events fire spuriously while the tab animates (especially with the mouse
+    /// pinned at the screen edge), so they only prompt a re-check. Once open, the tab stays open
+    /// until the mouse leaves the wider, hovered frame.
+    func updateHover() {
+        let mouse = NSEvent.mouseLocation
+        let zone = (isHovered ? hoverFrame : restingFrame).insetBy(dx: -2, dy: 0) // include the edge pixel
+        let hovered = zone.contains(mouse)
+        guard hovered != isHovered else { return }
+        isHovered = hovered
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0.12
-            animator().setFrame(f, display: true)
+            animator().setFrame(hovered ? hoverFrame : restingFrame, display: true)
         }
+    }
+
+    /// Moves the tab along the screen edge, kept on screen.
+    func move(toY y: CGFloat) {
+        let screen = (screen ?? NSScreen.main)?.visibleFrame ?? .infinite
+        restingFrame.origin.y = min(max(y, screen.minY + 4), screen.maxY - restingFrame.height - 4)
+        setFrame(isHovered ? hoverFrame : restingFrame, display: true)
     }
 }
 
@@ -108,16 +129,49 @@ private final class TuckTabView: NSView {
         ctx.restoreGState()
     }
 
-    override func mouseDown(with event: NSEvent) { tab?.onClick?() }
+    // A click brings the note back; a drag slides the tab up or down the edge.
+    private var dragStart: (mouse: CGFloat, tabY: CGFloat)?
+    private var isDragging = false
+
+    override func mouseDown(with event: NSEvent) {
+        guard let tab else { return }
+        dragStart = (NSEvent.mouseLocation.y, tab.resting.minY)
+        isDragging = false
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard let tab, let start = dragStart else { return }
+        let dy = NSEvent.mouseLocation.y - start.mouse
+        if !isDragging && abs(dy) < 3 { return }
+        isDragging = true
+        NSCursor.closedHand.set()
+        tab.move(toY: start.tabY + dy)
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        guard let tab else { return }
+        if isDragging {
+            tab.onMove?(tab.resting)
+            NSCursor.pointingHand.set()
+        } else {
+            tab.onClick?()
+        }
+        dragStart = nil
+        isDragging = false
+    }
     // Cursor rects only apply in the active app, so also set the cursor directly as the mouse
     // moves over the tab while another app is in front.
     override func mouseEntered(with event: NSEvent) {
-        tab?.setHovered(true)
+        tab?.updateHover()
         NSCursor.pointingHand.set()
     }
-    override func mouseMoved(with event: NSEvent) { NSCursor.pointingHand.set() }
+    override func mouseMoved(with event: NSEvent) {
+        tab?.updateHover()
+        NSCursor.pointingHand.set()
+    }
     override func mouseExited(with event: NSEvent) {
-        tab?.setHovered(false)
+        guard !isDragging else { return }
+        tab?.updateHover()
         NSCursor.arrow.set()
     }
     override func cursorUpdate(with event: NSEvent) { NSCursor.pointingHand.set() }
