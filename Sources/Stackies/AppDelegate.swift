@@ -92,6 +92,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
         controller.onNewNote = { [weak self] in self?.newNote(nil) }
         controller.onBecomeKey = { [weak self] c in self?.raiseInStage(c.window) }
         controller.onFrameChange = { [weak self] in self?.scheduleAnchorLayout() }
+        controller.onPinChange = { [weak self] c in
+            guard let self, let window = c.window else { return }
+            attachToAnchor(window)
+            scheduleAnchorLayout()
+        }
         controller.onScreenChange = { [weak self] c in
             if let window = c.window { self?.attachToAnchor(window) }
         }
@@ -114,9 +119,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
         } ?? NSScreen.main
     }
 
-    /// Makes `window` a child of its display's anchor, switching anchors if it changed displays.
+    /// Makes `window` a child of its display's anchor, switching anchors if it changed displays
+    /// (or detaches it, if the note is pinned).
     /// Only re-parents (never moves an anchor), so it's safe to do in the middle of a drag.
     private func attachToAnchor(_ window: NSWindow) {
+        if (window.windowController as? NoteWindowController)?.isPinned == true {
+            // A child always stays in its parent's stage, so a pinned note must stand alone to
+            // float over other apps' stages.
+            if let parent = window.parent {
+                parent.removeChildWindow(window)
+                window.orderFront(nil)
+            }
+            return
+        }
         guard let screen = screen(for: window), let id = displayID(of: screen) else { return }
         let anchor: NSWindow
         if let existing = anchors[id] {

@@ -8,6 +8,7 @@ final class NoteWindowController: NSWindowController, NSWindowDelegate, NSTextVi
     var onNewNote: (() -> Void)?
     var onBecomeKey: ((NoteWindowController) -> Void)?
     var onFrameChange: (() -> Void)?
+    var onPinChange: ((NoteWindowController) -> Void)?
     var onScreenChange: ((NoteWindowController) -> Void)?
 
     private let store: NoteStore
@@ -217,6 +218,7 @@ final class NoteWindowController: NSWindowController, NSWindowDelegate, NSTextVi
         let pinned = !isPinned
         store.update(noteID) { $0.isPinned = pinned }
         apply(pinned: pinned)
+        onPinChange?(self)
     }
 
     var hasPomodoro: Bool { pomodoro != nil }
@@ -388,6 +390,8 @@ final class NoteWindowController: NSWindowController, NSWindowDelegate, NSTextVi
 
     private func apply(pinned: Bool) {
         window?.level = pinned ? .floating : .normal
+        // Lets Stage Manager show the note over every app's stage instead of hiding it with ours.
+        window?.collectionBehavior = pinned ? [.canJoinAllApplications, .fullScreenAuxiliary] : []
         pinButton.image = NSImage(systemSymbolName: pinned ? "pin.fill" : "pin", accessibilityDescription: "Keep on Top")?
             .withSymbolConfiguration(.init(pointSize: 11, weight: .semibold))
         pinButton.contentTintColor = pinned ? color.accent : .secondaryLabelColor
