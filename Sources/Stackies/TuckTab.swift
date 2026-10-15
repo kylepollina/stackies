@@ -172,38 +172,55 @@ private final class TuckTabView: NSView {
     // A click brings the note back; a drag slides the tab up or down the edge, and on to the
     // display above or below when pushed past this one's edge.
     //
-    // The drag follows the mouse's raw movement (event deltas) rather than the cursor position:
-    // at a screen edge with no display directly beyond it, the cursor stops but the deltas keep
-    // coming, which is what lets the tab be pushed through to the next display.
-    private var drag: (startY: CGFloat, virtualY: CGFloat, grab: CGFloat)?
+    // The tab follows the cursor. At a screen edge with no display directly beyond it the cursor
+    // stops, but the mouse's raw movement (event deltas) keeps coming; that unfollowed movement
+    // is collected as `overshoot`, which is what pushes the tab through to the next display.
+    private struct Drag {
+        var start: CGFloat      // cursor y at mouse down
+        var lastCursor: CGFloat // cursor y at the previous event
+        var overshoot: CGFloat  // movement the cursor couldn't follow at an edge
+        var grab: CGFloat       // cursor y minus the tab's bottom
+        var skipNext = false    // the event after a cursor warp carries the warp in its delta
+    }
+    private var drag: Drag?
     private var isDragging = false
 
     override func mouseDown(with event: NSEvent) {
         guard let tab else { return }
         let y = NSEvent.mouseLocation.y
-        drag = (y, y, y - tab.resting.minY)
+        drag = Drag(start: y, lastCursor: y, overshoot: 0, grab: y - tab.resting.minY)
         isDragging = false
     }
 
     override func mouseDragged(with event: NSEvent) {
         guard let tab, var d = drag else { return }
-        d.virtualY -= event.deltaY // deltaY is positive moving down
         defer { drag = d }
-        if !isDragging && abs(d.virtualY - d.startY) < 3 { return }
+        let cursor = NSEvent.mouseLocation.y
+        if d.skipNext {
+            d.skipNext = false
+            d.lastCursor = cursor
+            return
+        }
+        let moved = cursor - d.lastCursor, intended = -event.deltaY // deltaY is positive moving down
+        d.lastCursor = cursor
+        let screen = NSScreen.screens.first { $0.frame.insetBy(dx: 0, dy: -1).contains(NSEvent.mouseLocation) }
+        let pinned = screen.map { cursor <= $0.frame.minY + 1 || cursor >= $0.frame.maxY - 1 } ?? false
+        d.overshoot = pinned ? d.overshoot + (intended - moved) : 0
+
+        if !isDragging && abs(cursor - d.start) < 3 && d.overshoot == 0 { return }
         isDragging = true
         NSCursor.closedHand.set()
 
-        let desired = d.virtualY - d.grab
-        if tab.drag(toY: desired) {
+        if tab.drag(toY: cursor + d.overshoot - d.grab) {
             // Jumped displays: bring the cursor along, holding the tab where it was grabbed.
             let r = tab.resting
             let point = NSPoint(x: r.midX, y: r.minY + min(max(d.grab, 4), r.height - 4))
             let primaryHeight = NSScreen.screens.first?.frame.maxY ?? 0
+            CGEventSource(stateID: .combinedSessionState)?.localEventsSuppressionInterval = 0
             CGWarpMouseCursorPosition(CGPoint(x: point.x, y: primaryHeight - point.y))
-            d = (point.y, point.y, point.y - r.minY)
-        } else if tab.resting.minY != desired, !tab.hasNeighbor(above: desired > tab.resting.minY) {
-            // Pinned at an edge with nowhere to go: don't build up slack to unwind later.
-            d.virtualY = tab.resting.minY + d.grab
+            d = Drag(start: d.start, lastCursor: point.y, overshoot: 0, grab: point.y - r.minY, skipNext: true)
+        } else if !tab.hasNeighbor(above: d.overshoot > 0) {
+            d.overshoot = 0 // pinned with nowhere to go: don't build up slack to unwind later
         }
     }
 
