@@ -21,7 +21,21 @@ final class TuckTab: NSPanel {
     private var restingFrame: NSRect = .zero
     private var isHovered = false
 
+    /// Lets the hand cursor show over a tab while another app is in front. Normally the frontmost
+    /// app owns the cursor and immediately resets it; this private (but long-standing) window-server
+    /// connection property opts us out of that. Looked up at runtime so it fails quietly if absent.
+    private static let allowBackgroundCursor: Void = {
+        typealias DefaultConnection = @convention(c) () -> Int32
+        typealias SetProperty = @convention(c) (Int32, Int32, CFString, CFTypeRef) -> Int32
+        guard let cg = dlopen("/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics", RTLD_LAZY),
+              let connection = dlsym(cg, "_CGSDefaultConnection"),
+              let setProperty = dlsym(cg, "CGSSetConnectionProperty") else { return }
+        let cid = unsafeBitCast(connection, to: DefaultConnection.self)()
+        _ = unsafeBitCast(setProperty, to: SetProperty.self)(cid, cid, "SetsCursorInBackground" as CFString, kCFBooleanTrue)
+    }()
+
     init(title: NSAttributedString, color: NoteColor, side: Side) {
+        Self.allowBackgroundCursor
         self.side = side
         super.init(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         isFloatingPanel = true
@@ -238,7 +252,7 @@ private final class TuckTabView: NSView {
     }
 
     // Cursor rects only apply in the active app, so also set the cursor directly as the mouse
-    // moves over the tab while another app is in front.
+    // moves over the tab while another app is in front (see `allowBackgroundCursor`).
     override func mouseEntered(with event: NSEvent) {
         tab?.updateHover()
         NSCursor.pointingHand.set()
