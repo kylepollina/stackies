@@ -437,6 +437,10 @@ final class NoteWindowController: NSWindowController, NSWindowDelegate, NSTextVi
     /// Slides the tab away and the note back in to where it was.
     func untuck() {
         guard let window, let tab else { return }
+        // Activate now, while the click on the tab is still being handled: macOS only lets an app
+        // bring itself forward in response to the user's own input, so asking later (after the
+        // animation) is quietly refused and ⌘W/⌘Q would still go to the previous app.
+        NSApp.activate()
         self.tab = nil
         store.update(noteID) { $0.tucked = nil }
         let target = frame(onScreenOf: tab, from: note?.frame ?? window.frame)
@@ -453,7 +457,6 @@ final class NoteWindowController: NSWindowController, NSWindowDelegate, NSTextVi
                 tab.orderOut(nil)
                 window.setFrame(self.offscreen(target, side: side), display: false)
                 self.onTuckChange?(self) // rejoins the anchor
-                NSApp.activate()
                 window.makeKeyAndOrderFront(nil)
                 window.makeFirstResponder(self.textView)
                 NSAnimationContext.runAnimationGroup({ context in
