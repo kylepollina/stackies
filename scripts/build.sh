@@ -21,6 +21,10 @@ fi
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/Stackies"
+# SwiftPM records the deployment target (macOS 14) as the SDK version, which makes AppKit run
+# the app in compatibility mode with no Liquid Glass. Record the real SDK it was built with.
+vtool -set-build-version macos 14.0 "$(xcrun --show-sdk-version)" -replace \
+    -output "$APP/Contents/MacOS/Stackies" "$APP/Contents/MacOS/Stackies"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
 cp build/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 codesign --force --sign - "$APP" >/dev/null

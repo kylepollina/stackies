@@ -195,7 +195,8 @@ final class NoteWindowController: NSWindowController, NSWindowDelegate, NSTextVi
         textView.linkTextAttributes = [.foregroundColor: color.accent,
                                        .underlineStyle: NSUnderlineStyle.single.rawValue,
                                        .cursor: NSCursor.pointingHand]
-        colorButton.contentTintColor = color.accent
+        // A real swatch rather than a tinted symbol: glass buttons don't reliably honor the tint.
+        colorButton.image = Self.swatch(for: color, size: 13)
         textView.needsDisplay = true
     }
 
@@ -267,8 +268,8 @@ final class NoteWindowController: NSWindowController, NSWindowDelegate, NSTextVi
 
     @objc private func randomColorChosen() { randomizeColor() }
 
-    static func swatch(for color: NoteColor) -> NSImage {
-        NSImage(size: NSSize(width: 14, height: 14), flipped: false) { rect in
+    static func swatch(for color: NoteColor, size: CGFloat = 14) -> NSImage {
+        NSImage(size: NSSize(width: size, height: size), flipped: false) { rect in
             let circle = NSBezierPath(ovalIn: rect.insetBy(dx: 1.5, dy: 1.5))
             color.background.setFill()
             circle.fill()
