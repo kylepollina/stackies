@@ -283,6 +283,10 @@ final class NoteWindowController: NSWindowController, NSWindowDelegate, NSTextVi
         let focus = p.flatMap { $0.phase == .focus ? $0 : nil }
         textView.timedMarker = focus?.marker
         layoutManager.timer = focus.map { ($0.marker, $0.progress, $0.isPaused) }
+        layoutManager.timerBlock = focus.map {
+            let ns = textView.string as NSString
+            return Markdown.itemBlock(in: ns, line: Markdown.line(in: ns, at: $0.marker))
+        }
         textView.needsDisplay = true
     }
 
@@ -292,7 +296,7 @@ final class NoteWindowController: NSWindowController, NSWindowDelegate, NSTextVi
         case .focus:
             let ns = textView.string as NSString
             let item = ns.substring(with: Markdown.line(in: ns, at: p.marker))
-                .replacingOccurrences(of: #"^[-*+] \[ \] "#, with: "", options: .regularExpression)
+                .replacingOccurrences(of: #"^\s*[-*+] \[ \] "#, with: "", options: .regularExpression)
             textView.addTomato(toItemAt: p.marker)
             PomodoroAlert.post(title: "Pomodoro done 🍅", body: "\(item)\nTake a \(Int(Pomodoro.restLength / 60)) minute break.")
             pomodoro = Pomodoro(phase: .rest, marker: p.marker)
@@ -302,7 +306,8 @@ final class NoteWindowController: NSWindowController, NSWindowDelegate, NSTextVi
         }
     }
 
-    /// Ends the focus timer if its item was deleted, indented, or checked off.
+    /// Ends the focus timer if its item was deleted or checked off; otherwise redraws its block,
+    /// which may have gained or lost subtasks.
     private func validatePomodoro() {
         guard let p = pomodoro, p.phase == .focus else { return }
         let ns = textView.string as NSString
@@ -311,6 +316,7 @@ final class NoteWindowController: NSWindowController, NSWindowDelegate, NSTextVi
             pomodoro = nil
             return
         }
+        refreshPomodoro()
     }
 
     /// Closes the window without the empty-note/save handling in `windowWillClose`.

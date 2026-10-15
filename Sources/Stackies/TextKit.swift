@@ -58,6 +58,22 @@ final class NoteLayoutManager: NSLayoutManager {
     var hoverMarker: Int?
     /// The item with a running pomodoro; its checkbox is drawn as a progress ring.
     var timer: (marker: Int, progress: CGFloat, paused: Bool)?
+    /// Characters of the timed item and its subtasks, drawn on a tinted background.
+    var timerBlock: NSRange?
+
+    override func drawBackground(forGlyphRange glyphsToShow: NSRange, at origin: NSPoint) {
+        if let block = timerBlock, block.length > 0, let marker = timer?.marker,
+           let box = checkboxRect(forMarker: NSRange(location: marker, length: 5), origin: origin) {
+            let first = lineFragmentRect(forGlyphAt: glyphIndexForCharacter(at: block.location), effectiveRange: nil)
+            let last = lineFragmentRect(forGlyphAt: glyphIndexForCharacter(at: block.upperBound - 1), effectiveRange: nil)
+            let rect = NSRect(x: box.minX - 6, y: origin.y + first.minY - 1,
+                              width: origin.x + first.maxX - 2 - (box.minX - 6),
+                              height: last.maxY - first.minY - 1)
+            accentColor.withAlphaComponent(0.18).setFill()
+            NSBezierPath(roundedRect: rect, xRadius: 7, yRadius: 7).fill()
+        }
+        super.drawBackground(forGlyphRange: glyphsToShow, at: origin)
+    }
 
     override func drawGlyphs(forGlyphRange glyphsToShow: NSRange, at origin: NSPoint) {
         super.drawGlyphs(forGlyphRange: glyphsToShow, at: origin)

@@ -108,6 +108,32 @@ enum Markdown {
         return ListPrefix(kind: .quote, indent: indent, marker: m.range(at: 7), end: end)
     }
 
+    /// The item on `line` plus the lines nested under it: every following line indented deeper,
+    /// up to the first blank line or line at the same or a shallower indent.
+    static func itemBlock(in ns: NSString, line: NSRange) -> NSRange {
+        func indentWidth(_ l: NSRange) -> Int {
+            var width = 0
+            for i in 0..<l.length {
+                switch ns.character(at: l.location + i) {
+                case 32: width += 1
+                case 9: width += 4
+                default: return width
+                }
+            }
+            return width
+        }
+        let base = indentWidth(line)
+        var end = line.upperBound
+        while end < ns.length {
+            let next = self.line(in: ns, at: end + 1)
+            guard next.location > end, next.length > 0,
+                  ns.substring(with: next).contains(where: { !$0.isWhitespace }),
+                  indentWidth(next) > base else { break }
+            end = next.upperBound
+        }
+        return NSRange(location: line.location, length: end - line.location)
+    }
+
     static func listPrefix(of line: String) -> ListPrefix? {
         let ns = line as NSString
         return listPrefix(in: ns, line: NSRange(location: 0, length: ns.length))

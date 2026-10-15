@@ -59,7 +59,7 @@ final class NoteTextView: NSTextView {
         needsDisplay = true
     }
 
-    /// A top-level, unchecked checklist item at `point` (anywhere on its first line) that could get a timer.
+    /// An unchecked checklist item at `point` (anywhere on its first line) that could get a timer.
     private func pomodoroItemMarker(at point: NSPoint) -> Int? {
         guard let lm = noteLayout, let container = textContainer, ns.length > 0 else { return nil }
         let containerPoint = NSPoint(x: point.x - textContainerOrigin.x, y: point.y - textContainerOrigin.y)
@@ -79,9 +79,9 @@ final class NoteTextView: NSTextView {
         return marker
     }
 
-    /// The prefix of `line` if it's a top-level, unchecked checklist item.
+    /// The prefix of `line` if it's an unchecked checklist item (at any nesting level).
     func pomodoroItem(onLine line: NSRange) -> ListPrefix? {
-        guard let p = Markdown.listPrefix(in: ns, line: line), p.isCheckbox, !p.isChecked, p.indent.length == 0 else { return nil }
+        guard let p = Markdown.listPrefix(in: ns, line: line), p.isCheckbox, !p.isChecked else { return nil }
         return p
     }
 
