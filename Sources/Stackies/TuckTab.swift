@@ -21,12 +21,6 @@ final class TuckTab: NSPanel {
                 .paragraphStyle: p]
     }()
 
-    /// Tall enough for the title, within reason.
-    static func height(for title: String) -> CGFloat {
-        let w = (title as NSString).size(withAttributes: titleAttributes).width
-        return min(max(w + 28, 72), 220).rounded()
-    }
-
     var onClick: (() -> Void)?
     let side: Side
     private var restingFrame: NSRect = .zero

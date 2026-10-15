@@ -389,16 +389,17 @@ final class NoteWindowController: NSWindowController, NSWindowDelegate, NSTextVi
 
     @objc private func tuckClicked() { tuck() }
 
-    /// Sends the note to a tab at the screen edge. Without animation it just leaves the tab
-    /// (used to restore tucked notes at launch, before the window was ever shown).
+    /// Slides the note off the screen edge and a tab in. Without animation it just leaves the
+    /// tab (used to restore tucked notes at launch, before the window was ever shown).
     func tuck(animated: Bool = true) {
         guard let window, tab == nil else { return }
         store.update(noteID) { $0.tucked = true }
         let saved = window.frame
-        let title = note?.title ?? "Note"
-        let tab = TuckTab(title: title, color: color, side: TuckTab.side)
+        let side = TuckTab.side
+        let tab = TuckTab(title: note?.title ?? "Note", color: color, side: side)
         tab.onClick = { [weak self] in self?.untuck() }
-        tab.place(at: tabRect(near: saved, height: TuckTab.height(for: title), side: tab.side))
+        // As tall as the note is wide, within reason.
+        tab.place(at: tabRect(near: saved, height: min(max(saved.width, 72), 320).rounded(), side: side))
         self.tab = tab
         onTuckChange?(self) // leaves the anchor so hiding it doesn't disturb the other notes
 
@@ -408,54 +409,67 @@ final class NoteWindowController: NSWindowController, NSWindowDelegate, NSTextVi
             return
         }
         isAnimatingTuck = true
-        window.minSize = .zero
         NSAnimationContext.runAnimationGroup({ context in
-            context.duration = 0.22
+            context.duration = 0.28
             context.timingFunction = CAMediaTimingFunction(name: .easeIn)
-            window.animator().setFrame(tab.resting, display: true)
-            window.animator().alphaValue = 0
+            window.animator().setFrame(offscreen(saved, side: side), display: true)
         }, completionHandler: { [weak self] in
             MainActor.assumeIsolated {
                 window.orderOut(nil)
                 window.setFrame(saved, display: false)
-                window.alphaValue = 1
-                window.minSize = NSSize(width: 180, height: 120)
                 self?.isAnimatingTuck = false
-                tab.alphaValue = 0
+                tab.setFrame(self?.offscreen(tab.resting, side: side) ?? tab.resting, display: false)
                 tab.orderFront(nil)
-                NSAnimationContext.runAnimationGroup { $0.duration = 0.15; tab.animator().alphaValue = 1 }
+                NSAnimationContext.runAnimationGroup { context in
+                    context.duration = 0.18
+                    context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                    tab.animator().setFrame(tab.resting, display: true)
+                }
             }
         })
     }
 
-    /// Brings the note back from its tab to where it was.
+    /// Slides the tab away and the note back in to where it was.
     func untuck() {
         guard let window, let tab else { return }
         self.tab = nil
         store.update(noteID) { $0.tucked = nil }
         let target = note?.frame ?? window.frame
-        tab.orderOut(nil)
+        let side = tab.side
 
         isAnimatingTuck = true
-        window.minSize = .zero
-        window.setFrame(tab.resting, display: false)
-        window.alphaValue = 0
-        onTuckChange?(self) // rejoins the anchor
-        NSApp.activate()
-        window.makeKeyAndOrderFront(nil)
-        window.makeFirstResponder(textView)
         NSAnimationContext.runAnimationGroup({ context in
-            context.duration = 0.25
-            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
-            window.animator().setFrame(target, display: true)
-            window.animator().alphaValue = 1
+            context.duration = 0.12
+            context.timingFunction = CAMediaTimingFunction(name: .easeIn)
+            tab.animator().setFrame(offscreen(tab.resting, side: side), display: true)
         }, completionHandler: { [weak self] in
             MainActor.assumeIsolated {
-                window.minSize = NSSize(width: 180, height: 120)
-                self?.isAnimatingTuck = false
-                self?.saveFrame()
+                guard let self else { return }
+                tab.orderOut(nil)
+                window.setFrame(self.offscreen(target, side: side), display: false)
+                self.onTuckChange?(self) // rejoins the anchor
+                NSApp.activate()
+                window.makeKeyAndOrderFront(nil)
+                window.makeFirstResponder(self.textView)
+                NSAnimationContext.runAnimationGroup({ context in
+                    context.duration = 0.3
+                    context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                    window.animator().setFrame(target, display: true)
+                }, completionHandler: { [weak self] in
+                    MainActor.assumeIsolated {
+                        self?.isAnimatingTuck = false
+                        self?.saveFrame()
+                    }
+                })
             }
         })
+    }
+
+    /// `frame` moved horizontally just past the screen edge on `side`.
+    private func offscreen(_ frame: NSRect, side: TuckTab.Side) -> NSRect {
+        let screen = (NSScreen.screens.first { $0.frame.intersects(frame) } ?? NSScreen.main)?.frame ?? frame
+        let x = side == .right ? screen.maxX + 4 : screen.minX - frame.width - 4
+        return NSRect(x: x, y: frame.minY, width: frame.width, height: frame.height)
     }
 
     /// A spot on the screen edge level with the note, below any tabs already there.
