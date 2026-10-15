@@ -29,5 +29,6 @@ Notes are stored in `~/Library/Application Support/Stackies/notes.json`.
 | Bold / Italic / Strikethrough | ⌘B / ⌘I / ⇧⌘X |
 | Move item (with subtasks) up / down | ⌘↑ / ⌘↓ |
 | Keep on top | ⌘P |
+| Tuck away to the screen edge (click the tab to bring it back) | ⌘J |
 | Note color | ⌘1–⌘7 (⌘0 for random) |
 | Delete note | ⇧⌘⌫ |

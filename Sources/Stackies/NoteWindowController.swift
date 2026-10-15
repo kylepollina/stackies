@@ -9,6 +9,9 @@ final class NoteWindowController: NSWindowController, NSWindowDelegate, NSTextVi
     var onBecomeKey: ((NoteWindowController) -> Void)?
     var onFrameChange: (() -> Void)?
     var onPinChange: ((NoteWindowController) -> Void)?
+    var onTuckChange: ((NoteWindowController) -> Void)?
+    /// Frames of other notes' tabs, so a new tab can avoid them.
+    var otherTabFrames: (() -> [NSRect])?
     var onScreenChange: ((NoteWindowController) -> Void)?
 
     private let store: NoteStore
@@ -18,6 +21,9 @@ final class NoteWindowController: NSWindowController, NSWindowDelegate, NSTextVi
     private var buttons: [NSButton] = []
     private var pinButton: NSButton!
     private var colorButton: NSButton!
+    private var tuckButton: NSButton!
+    private var tab: TuckTab?
+    private var isAnimatingTuck = false
     private var isHovering = false
     private var isBeingDeleted = false
     private var timerButton: NSButton!
@@ -121,12 +127,14 @@ final class NoteWindowController: NSWindowController, NSWindowDelegate, NSTextVi
         let newButton = makeButton("plus", "New Note", #selector(newNoteClicked))
         colorButton = makeButton("circle.fill", "Note Color", #selector(showColorMenu(_:)))
         pinButton = makeButton("pin", "Keep on Top", #selector(togglePin))
-        buttons = [newButton, colorButton, pinButton]
+        tuckButton = makeButton(TuckTab.side == .right ? "arrow.right.to.line" : "arrow.left.to.line",
+                                "Tuck Away", #selector(tuckClicked))
+        buttons = [newButton, colorButton, pinButton, tuckButton]
 
         let stack = NSStackView(views: buttons)
         stack.spacing = 4
         stack.translatesAutoresizingMaskIntoConstraints = false
-        let holder = NSView(frame: NSRect(x: 0, y: 0, width: 92, height: 28))
+        let holder = NSView(frame: NSRect(x: 0, y: 0, width: 122, height: 28))
         holder.addSubview(stack)
         NSLayoutConstraint.activate([
             stack.centerYAnchor.constraint(equalTo: holder.centerYAnchor),
@@ -206,6 +214,7 @@ final class NoteWindowController: NSWindowController, NSWindowDelegate, NSTextVi
     // MARK: - Public actions
 
     func focus() {
+        if isTucked { untuck(); return }
         showWindow(nil)
         window?.makeFirstResponder(textView)
     }
@@ -373,6 +382,98 @@ final class NoteWindowController: NSWindowController, NSWindowDelegate, NSTextVi
         refreshPomodoro()
     }
 
+    // MARK: - Tucking away
+
+    var isTucked: Bool { note?.tucked == true }
+    var tabFrame: NSRect? { tab?.resting }
+
+    @objc private func tuckClicked() { tuck() }
+
+    /// Sends the note to a tab at the screen edge. Without animation it just leaves the tab
+    /// (used to restore tucked notes at launch, before the window was ever shown).
+    func tuck(animated: Bool = true) {
+        guard let window, tab == nil else { return }
+        store.update(noteID) { $0.tucked = true }
+        let saved = window.frame
+        let title = note?.title ?? "Note"
+        let tab = TuckTab(title: title, color: color, side: TuckTab.side)
+        tab.onClick = { [weak self] in self?.untuck() }
+        tab.place(at: tabRect(near: saved, height: TuckTab.height(for: title), side: tab.side))
+        self.tab = tab
+        onTuckChange?(self) // leaves the anchor so hiding it doesn't disturb the other notes
+
+        guard animated, window.isVisible else {
+            window.orderOut(nil)
+            tab.orderFront(nil)
+            return
+        }
+        isAnimatingTuck = true
+        window.minSize = .zero
+        NSAnimationContext.runAnimationGroup({ context in
+            context.duration = 0.22
+            context.timingFunction = CAMediaTimingFunction(name: .easeIn)
+            window.animator().setFrame(tab.resting, display: true)
+            window.animator().alphaValue = 0
+        }, completionHandler: { [weak self] in
+            MainActor.assumeIsolated {
+                window.orderOut(nil)
+                window.setFrame(saved, display: false)
+                window.alphaValue = 1
+                window.minSize = NSSize(width: 180, height: 120)
+                self?.isAnimatingTuck = false
+                tab.alphaValue = 0
+                tab.orderFront(nil)
+                NSAnimationContext.runAnimationGroup { $0.duration = 0.15; tab.animator().alphaValue = 1 }
+            }
+        })
+    }
+
+    /// Brings the note back from its tab to where it was.
+    func untuck() {
+        guard let window, let tab else { return }
+        self.tab = nil
+        store.update(noteID) { $0.tucked = nil }
+        let target = note?.frame ?? window.frame
+        tab.orderOut(nil)
+
+        isAnimatingTuck = true
+        window.minSize = .zero
+        window.setFrame(tab.resting, display: false)
+        window.alphaValue = 0
+        onTuckChange?(self) // rejoins the anchor
+        NSApp.activate()
+        window.makeKeyAndOrderFront(nil)
+        window.makeFirstResponder(textView)
+        NSAnimationContext.runAnimationGroup({ context in
+            context.duration = 0.25
+            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            window.animator().setFrame(target, display: true)
+            window.animator().alphaValue = 1
+        }, completionHandler: { [weak self] in
+            MainActor.assumeIsolated {
+                window.minSize = NSSize(width: 180, height: 120)
+                self?.isAnimatingTuck = false
+                self?.saveFrame()
+            }
+        })
+    }
+
+    /// A spot on the screen edge level with the note, below any tabs already there.
+    private func tabRect(near frame: NSRect, height: CGFloat, side: TuckTab.Side) -> NSRect {
+        let screen = (NSScreen.screens.first { $0.frame.intersects(frame) } ?? NSScreen.main)?.visibleFrame
+            ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+        let x = side == .right ? screen.maxX - TuckTab.width : screen.minX
+        let y = min(max(frame.midY - height / 2, screen.minY + 8), screen.maxY - height - 8)
+        var rect = NSRect(x: x, y: y, width: TuckTab.width, height: height)
+        let others = (otherTabFrames?() ?? []).filter { abs($0.minX - x) < TuckTab.width }
+        for _ in 0..<others.count + 1 {
+            guard let hit = others.first(where: { $0.insetBy(dx: 0, dy: -6).intersects(rect) }) else { break }
+            rect.origin.y = hit.minY - 8 - height
+            if rect.minY < screen.minY + 8 { rect.origin.y = screen.maxY - height - 8 }
+        }
+        return rect
+    }
+
     /// Closes the window without the empty-note/save handling in `windowWillClose`.
     func closeForDeletion() {
         isBeingDeleted = true
@@ -410,6 +511,7 @@ final class NoteWindowController: NSWindowController, NSWindowDelegate, NSTextVi
             (buttons[0], visible),
             (colorButton, visible),
             (pinButton, visible || isPinned),
+            (tuckButton, visible),
         ]
         NSAnimationContext.runAnimationGroup { context in
             context.duration = animated ? 0.15 : 0
@@ -494,12 +596,14 @@ final class NoteWindowController: NSWindowController, NSWindowDelegate, NSTextVi
     func windowDidChangeScreen(_ notification: Notification) { onScreenChange?(self) }
 
     private func saveFrame() {
-        guard let frame = window?.frame else { return }
+        guard !isAnimatingTuck, let frame = window?.frame else { return }
         store.update(noteID) { $0.frame = frame }
         onFrameChange?()
     }
 
     func windowWillClose(_ notification: Notification) {
+        tab?.orderOut(nil)
+        tab = nil
         stopPomodoro()
         if !isBeingDeleted {
             // A note closed with nothing in it isn't worth keeping.

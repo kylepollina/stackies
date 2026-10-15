@@ -46,6 +46,8 @@ struct Note: Codable, Identifiable {
     var color: NoteColor = .yellow
     var frame: CGRect
     var isPinned = false
+    /// Tucked away to a tab at the screen edge. Optional so notes saved before this existed still load.
+    var tucked: Bool?
     var created = Date()
     var modified = Date()
 

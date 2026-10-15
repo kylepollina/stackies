@@ -100,7 +100,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
         controller.onScreenChange = { [weak self] c in
             if let window = c.window { self?.attachToAnchor(window) }
         }
+        controller.onTuckChange = controller.onPinChange
+        controller.otherTabFrames = { [weak self, weak controller] in
+            self?.controllers.values.filter { $0 !== controller }.compactMap(\.tabFrame) ?? []
+        }
         controllers[id] = controller
+        if controller.isTucked {
+            controller.tuck(animated: false)
+            return
+        }
         if let window = controller.window {
             attachToAnchor(window)
             scheduleAnchorLayout()
@@ -123,6 +131,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
     /// (or detaches it, if the note is pinned).
     /// Only re-parents (never moves an anchor), so it's safe to do in the middle of a drag.
     private func attachToAnchor(_ window: NSWindow) {
+        if (window.windowController as? NoteWindowController)?.isTucked == true {
+            window.parent?.removeChildWindow(window) // hidden behind its tab; not part of the stage
+            return
+        }
         if (window.windowController as? NoteWindowController)?.isPinned == true {
             // A child always stays in its parent's stage, so a pinned note must stand alone to
             // float over other apps' stages.
@@ -170,6 +182,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
     private func layoutAnchors() {
         let windows = controllers.values.compactMap(\.window)
         windows.forEach(attachToAnchor)
+        // (Tucked and pinned notes end up with no parent, so they're left out of the anchors below.)
 
         for (id, anchor) in anchors {
             let children = windows.filter { $0.parent === anchor }
@@ -273,6 +286,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
         keyController?.stopPomodoro()
     }
 
+    @objc func tuckAway(_ sender: Any?) {
+        keyController?.tuck()
+    }
+
     @objc func togglePin(_ sender: Any?) {
         keyController?.togglePin()
     }
@@ -356,6 +373,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
             return keyController != nil
         case #selector(deleteNote(_:)), #selector(randomizeColor(_:)):
             return keyController != nil
+        case #selector(tuckAway(_:)):
+            return keyController != nil
         case #selector(startPomodoro(_:)):
             return keyController != nil
         case #selector(stopPomodoro(_:)):
@@ -424,6 +443,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
         }
         main.addItem(submenu("Note", [
             item("Keep on Top", #selector(togglePin(_:)), "p"),
+            item("Tuck Away", #selector(tuckAway(_:)), "j"),
             submenu("Color", colorItems + [
                 .separator(),
                 item("Random Color", #selector(randomizeColor(_:)), "0"),
