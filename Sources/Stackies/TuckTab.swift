@@ -70,10 +70,50 @@ final class TuckTab: NSPanel {
         }
     }
 
-    /// Moves the tab along the screen edge, kept on screen.
-    func move(toY y: CGFloat) {
-        let screen = (screen ?? NSScreen.main)?.visibleFrame ?? .infinite
-        restingFrame.origin.y = min(max(y, screen.minY + 4), screen.maxY - restingFrame.height - 4)
+    /// Moves the tab along the screen edge to bottom `y`, kept on screen. Dragged more than
+    /// halfway past the top or bottom of its display, it hops to the same edge of the display
+    /// above or below (if there is one). Returns whether it changed displays.
+    func drag(toY y: CGFloat) -> Bool {
+        guard let current = screen ?? NSScreen.main else { return false }
+        let mid = y + restingFrame.height / 2
+        if mid < current.frame.minY, let below = Self.neighbor(of: current, above: false) {
+            put(on: below, y: below.visibleFrame.maxY - restingFrame.height - 4)
+            return true
+        }
+        if mid > current.frame.maxY, let above = Self.neighbor(of: current, above: true) {
+            put(on: above, y: above.visibleFrame.minY + 4)
+            return true
+        }
+        let v = current.visibleFrame
+        restingFrame.origin.y = min(max(y, v.minY + 4), v.maxY - restingFrame.height - 4)
+        setFrame(isHovered ? hoverFrame : restingFrame, display: true)
+        return false
+    }
+
+    func hasNeighbor(above: Bool) -> Bool {
+        guard let current = screen else { return false }
+        return Self.neighbor(of: current, above: above) != nil
+    }
+
+    /// The nearest display stacked directly above or below `screen` (overlapping horizontally).
+    private static func neighbor(of screen: NSScreen, above: Bool) -> NSScreen? {
+        let screens = NSScreen.screens
+        return neighborIndex(of: screen.frame, among: screens.map(\.frame), above: above).map { screens[$0] }
+    }
+
+    static func neighborIndex(of f: NSRect, among frames: [NSRect], above: Bool) -> Int? {
+        frames.indices
+            .filter { frames[$0] != f && frames[$0].minX < f.maxX && frames[$0].maxX > f.minX }
+            .filter { above ? frames[$0].minY >= f.maxY - 1 : frames[$0].maxY <= f.minY + 1 }
+            .min { above ? frames[$0].minY < frames[$1].minY : frames[$0].maxY > frames[$1].maxY }
+    }
+
+    /// Moves the tab to this side's edge of `screen`, at bottom `y`.
+    private func put(on screen: NSScreen, y: CGFloat) {
+        let v = screen.visibleFrame
+        restingFrame = NSRect(x: side == .right ? v.maxX - Self.width : v.minX,
+                              y: min(max(y, v.minY + 4), v.maxY - restingFrame.height - 4),
+                              width: Self.width, height: restingFrame.height)
         setFrame(isHovered ? hoverFrame : restingFrame, display: true)
     }
 }
@@ -129,23 +169,42 @@ private final class TuckTabView: NSView {
         ctx.restoreGState()
     }
 
-    // A click brings the note back; a drag slides the tab up or down the edge.
-    private var dragStart: (mouse: CGFloat, tabY: CGFloat)?
+    // A click brings the note back; a drag slides the tab up or down the edge, and on to the
+    // display above or below when pushed past this one's edge.
+    //
+    // The drag follows the mouse's raw movement (event deltas) rather than the cursor position:
+    // at a screen edge with no display directly beyond it, the cursor stops but the deltas keep
+    // coming, which is what lets the tab be pushed through to the next display.
+    private var drag: (startY: CGFloat, virtualY: CGFloat, grab: CGFloat)?
     private var isDragging = false
 
     override func mouseDown(with event: NSEvent) {
         guard let tab else { return }
-        dragStart = (NSEvent.mouseLocation.y, tab.resting.minY)
+        let y = NSEvent.mouseLocation.y
+        drag = (y, y, y - tab.resting.minY)
         isDragging = false
     }
 
     override func mouseDragged(with event: NSEvent) {
-        guard let tab, let start = dragStart else { return }
-        let dy = NSEvent.mouseLocation.y - start.mouse
-        if !isDragging && abs(dy) < 3 { return }
+        guard let tab, var d = drag else { return }
+        d.virtualY -= event.deltaY // deltaY is positive moving down
+        defer { drag = d }
+        if !isDragging && abs(d.virtualY - d.startY) < 3 { return }
         isDragging = true
         NSCursor.closedHand.set()
-        tab.move(toY: start.tabY + dy)
+
+        let desired = d.virtualY - d.grab
+        if tab.drag(toY: desired) {
+            // Jumped displays: bring the cursor along, holding the tab where it was grabbed.
+            let r = tab.resting
+            let point = NSPoint(x: r.midX, y: r.minY + min(max(d.grab, 4), r.height - 4))
+            let primaryHeight = NSScreen.screens.first?.frame.maxY ?? 0
+            CGWarpMouseCursorPosition(CGPoint(x: point.x, y: primaryHeight - point.y))
+            d = (point.y, point.y, point.y - r.minY)
+        } else if tab.resting.minY != desired, !tab.hasNeighbor(above: desired > tab.resting.minY) {
+            // Pinned at an edge with nowhere to go: don't build up slack to unwind later.
+            d.virtualY = tab.resting.minY + d.grab
+        }
     }
 
     override func mouseUp(with event: NSEvent) {
@@ -153,12 +212,14 @@ private final class TuckTabView: NSView {
         if isDragging {
             tab.onMove?(tab.resting)
             NSCursor.pointingHand.set()
+            tab.updateHover()
         } else {
             tab.onClick?()
         }
-        dragStart = nil
+        drag = nil
         isDragging = false
     }
+
     // Cursor rects only apply in the active app, so also set the cursor directly as the mouse
     // moves over the tab while another app is in front.
     override func mouseEntered(with event: NSEvent) {

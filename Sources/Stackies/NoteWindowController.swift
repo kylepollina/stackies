@@ -400,11 +400,11 @@ final class NoteWindowController: NSWindowController, NSWindowDelegate, NSTextVi
         tab.onClick = { [weak self] in self?.untuck() }
         tab.onMove = { [weak self] frame in
             guard let self else { return }
-            store.update(noteID) { $0.tabY = frame.minY }
+            store.update(noteID) { $0.tabOrigin = frame.origin }
         }
         // As tall as the note is wide, within reason; where it was last dragged to, if anywhere.
         tab.place(at: tabRect(near: saved, height: min(max(saved.width, 72), 320).rounded(), side: side,
-                              preferredY: note?.tabY.map { CGFloat($0) }))
+                              preferred: note?.tabOrigin))
         self.tab = tab
         onTuckChange?(self) // leaves the anchor so hiding it doesn't disturb the other notes
 
@@ -439,7 +439,7 @@ final class NoteWindowController: NSWindowController, NSWindowDelegate, NSTextVi
         guard let window, let tab else { return }
         self.tab = nil
         store.update(noteID) { $0.tucked = nil }
-        let target = note?.frame ?? window.frame
+        let target = frame(onScreenOf: tab, from: note?.frame ?? window.frame)
         let side = tab.side
 
         isAnimatingTuck = true
@@ -470,6 +470,21 @@ final class NoteWindowController: NSWindowController, NSWindowDelegate, NSTextVi
         })
     }
 
+    /// Where the note should come back: where it was, or, if its tab was dragged to another
+    /// display, the same distance from the edge on that display, level with the tab.
+    private func frame(onScreenOf tab: TuckTab, from saved: NSRect) -> NSRect {
+        guard let tabScreen = tab.screen,
+              let oldScreen = NSScreen.screens.first(where: { $0.frame.intersects(saved) }),
+              tabScreen != oldScreen else { return saved }
+        let old = oldScreen.visibleFrame, new = tabScreen.visibleFrame
+        var f = saved
+        f.origin.x = tab.side == .right ? new.maxX - (old.maxX - saved.minX) : new.minX + (saved.minX - old.minX)
+        f.origin.y = tab.resting.midY - f.height / 2
+        f.origin.x = min(max(f.minX, new.minX), new.maxX - f.width)
+        f.origin.y = min(max(f.minY, new.minY), new.maxY - f.height)
+        return f
+    }
+
     /// `frame` moved horizontally just past the screen edge on `side`.
     private func offscreen(_ frame: NSRect, side: TuckTab.Side) -> NSRect {
         let screen = (NSScreen.screens.first { $0.frame.intersects(frame) } ?? NSScreen.main)?.frame ?? frame
@@ -478,9 +493,14 @@ final class NoteWindowController: NSWindowController, NSWindowDelegate, NSTextVi
     }
 
     /// A spot on the screen edge level with the note, below any tabs already there.
-    private func tabRect(near frame: NSRect, height: CGFloat, side: TuckTab.Side, preferredY: CGFloat? = nil) -> NSRect {
-        let screen = (NSScreen.screens.first { $0.frame.intersects(frame) } ?? NSScreen.main)?.visibleFrame
+    private func tabRect(near frame: NSRect, height: CGFloat, side: TuckTab.Side, preferred: CGPoint? = nil) -> NSRect {
+        // A dragged-to spot picks its display; otherwise use the note's.
+        let dragged = preferred.flatMap { p in
+            NSScreen.screens.first { $0.frame.insetBy(dx: -2, dy: -2).contains(NSPoint(x: p.x + TuckTab.width / 2, y: p.y + 1)) }
+        }
+        let screen = (dragged ?? NSScreen.screens.first { $0.frame.intersects(frame) } ?? NSScreen.main)?.visibleFrame
             ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+        let preferredY = dragged == nil ? nil : preferred?.y
         let x = side == .right ? screen.maxX - TuckTab.width : screen.minX
         let y = min(max(preferredY ?? frame.midY - height / 2, screen.minY + 4), screen.maxY - height - 4)
         var rect = NSRect(x: x, y: y, width: TuckTab.width, height: height)
