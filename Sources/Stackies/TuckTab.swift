@@ -5,8 +5,8 @@ import AppKit
 final class TuckTab: NSPanel {
     enum Side { case left, right }
 
-    static let width: CGFloat = 30
-    private static let hoverWidth: CGFloat = 38
+    static let width: CGFloat = 40
+    private static let hoverWidth: CGFloat = 50
 
     /// The edge opposite Stage Manager's strip, which sits on the left unless the Dock is there.
     /// (With the Dock on the left, the strip moves right, so tabs go left.)
@@ -14,18 +14,11 @@ final class TuckTab: NSPanel {
         UserDefaults(suiteName: "com.apple.dock")?.string(forKey: "orientation") == "left" ? .left : .right
     }
 
-    static let titleAttributes: [NSAttributedString.Key: Any] = {
-        let p = NSMutableParagraphStyle()
-        p.lineBreakMode = .byTruncatingTail
-        return [.font: NSFont.systemFont(ofSize: 12, weight: .semibold), .foregroundColor: NSColor.labelColor,
-                .paragraphStyle: p]
-    }()
-
     var onClick: (() -> Void)?
     let side: Side
     private var restingFrame: NSRect = .zero
 
-    init(title: String, color: NoteColor, side: Side) {
+    init(title: NSAttributedString, color: NoteColor, side: Side) {
         self.side = side
         super.init(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         isFloatingPanel = true
@@ -65,20 +58,21 @@ final class TuckTab: NSPanel {
 }
 
 private final class TuckTabView: NSView {
-    let title: String
+    let title: NSAttributedString
     let color: NoteColor
     let side: TuckTab.Side
     weak var tab: TuckTab?
 
-    init(title: String, color: NoteColor, side: TuckTab.Side, tab: TuckTab) {
+    init(title: NSAttributedString, color: NoteColor, side: TuckTab.Side, tab: TuckTab) {
         self.title = title
         self.color = color
         self.side = side
         self.tab = tab
         super.init(frame: .zero)
-        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect, .cursorUpdate],
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways,
+                                                              .inVisibleRect, .cursorUpdate],
                                        owner: self, userInfo: nil))
-        toolTip = title
+        toolTip = title.string
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
@@ -96,21 +90,35 @@ private final class TuckTabView: NSView {
         path.lineWidth = 1
         path.stroke()
 
-        // The title runs top to bottom, like a book spine.
+        // The first line, as if the note were turned on its side and slid over: on the right edge
+        // it reads bottom to top, on the left top to bottom, with the text's top facing inward.
         guard let ctx = NSGraphicsContext.current?.cgContext else { return }
-        let font = TuckTab.titleAttributes[.font] as! NSFont
-        let lineHeight = ceil(font.ascender - font.descender)
+        let lineHeight = ceil(title.size().height)
+        let length = bounds.height - 28
         ctx.saveGState()
-        ctx.translateBy(x: bounds.midX, y: bounds.maxY - 14)
-        ctx.rotate(by: -.pi / 2)
-        (title as NSString).draw(with: NSRect(x: 0, y: -lineHeight / 2 + 1, width: bounds.height - 28, height: lineHeight),
-                                 options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine],
-                                 attributes: TuckTab.titleAttributes)
+        if side == .right {
+            ctx.translateBy(x: bounds.midX, y: bounds.minY + 14)
+            ctx.rotate(by: .pi / 2)
+        } else {
+            ctx.translateBy(x: bounds.midX, y: bounds.maxY - 14)
+            ctx.rotate(by: -.pi / 2)
+        }
+        title.draw(with: NSRect(x: 0, y: -lineHeight / 2, width: length, height: lineHeight),
+                   options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine])
         ctx.restoreGState()
     }
 
     override func mouseDown(with event: NSEvent) { tab?.onClick?() }
-    override func mouseEntered(with event: NSEvent) { tab?.setHovered(true) }
-    override func mouseExited(with event: NSEvent) { tab?.setHovered(false) }
+    // Cursor rects only apply in the active app, so also set the cursor directly as the mouse
+    // moves over the tab while another app is in front.
+    override func mouseEntered(with event: NSEvent) {
+        tab?.setHovered(true)
+        NSCursor.pointingHand.set()
+    }
+    override func mouseMoved(with event: NSEvent) { NSCursor.pointingHand.set() }
+    override func mouseExited(with event: NSEvent) {
+        tab?.setHovered(false)
+        NSCursor.arrow.set()
+    }
     override func cursorUpdate(with event: NSEvent) { NSCursor.pointingHand.set() }
 }

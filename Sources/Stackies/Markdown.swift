@@ -144,6 +144,34 @@ enum Markdown {
         return listPrefix(in: ns, line: NSRange(location: 0, length: ns.length))
     }
 
+    /// The note's first non-blank line, styled as in the note but with its markdown syntax
+    /// (heading hashes, list markers, `**` etc.) removed — for showing the note in a small space.
+    static func styledTitle(of text: String) -> NSAttributedString {
+        let ns = text as NSString
+        var title = NSRange(location: 0, length: 0)
+        ns.enumerateSubstrings(in: NSRange(location: 0, length: ns.length), options: [.byLines, .substringNotRequired]) { _, line, _, stop in
+            if !isBlank(in: ns, line: line) { title = line; stop.pointee = true }
+        }
+        let s = NSMutableAttributedString(string: ns.substring(with: title))
+        style(s, range: NSRange(location: 0, length: s.length))
+
+        // Drop the characters the note shows dimmed or invisible, except link text.
+        var hidden: [NSRange] = []
+        s.enumerateAttribute(.foregroundColor, in: NSRange(location: 0, length: s.length)) { value, range, _ in
+            guard let color = value as? NSColor, color == markerColor || color == .clear else { return }
+            s.enumerateAttribute(.link, in: range) { link, r, _ in if link == nil { hidden.append(r) } }
+        }
+        hidden.reversed().forEach { s.deleteCharacters(in: $0) }
+        while let first = s.string.unicodeScalars.first, CharacterSet.whitespaces.contains(first) {
+            s.deleteCharacters(in: NSRange(location: 0, length: 1))
+        }
+        let p = NSMutableParagraphStyle()
+        p.lineBreakMode = .byTruncatingTail
+        s.addAttribute(.paragraphStyle, value: p, range: NSRange(location: 0, length: s.length))
+        s.removeAttribute(.kern, range: NSRange(location: 0, length: s.length))
+        return s.length > 0 ? s : NSAttributedString(string: "Empty Note", attributes: baseAttributes)
+    }
+
     // MARK: - Styling
 
     /// Restyles every line touched by `range`. All supported syntax is line-local,

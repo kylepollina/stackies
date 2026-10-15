@@ -396,7 +396,7 @@ final class NoteWindowController: NSWindowController, NSWindowDelegate, NSTextVi
         store.update(noteID) { $0.tucked = true }
         let saved = window.frame
         let side = TuckTab.side
-        let tab = TuckTab(title: note?.title ?? "Note", color: color, side: side)
+        let tab = TuckTab(title: Markdown.styledTitle(of: note?.text ?? ""), color: color, side: side)
         tab.onClick = { [weak self] in self?.untuck() }
         // As tall as the note is wide, within reason.
         tab.place(at: tabRect(near: saved, height: min(max(saved.width, 72), 320).rounded(), side: side))
