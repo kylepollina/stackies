@@ -63,6 +63,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        controllers.values.forEach { $0.stopPomodoro() } // record running sessions' time
         store.removeEmptyNotes()
         store.saveNow()
     }

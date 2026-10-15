@@ -233,11 +233,38 @@ final class NoteWindowController: NSWindowController, NSWindowDelegate, NSTextVi
 
     private func startPomodoro(marker: Int) {
         PomodoroAlert.requestPermission()
+        let previous = pomodoro
+        // Start the new timer first so that writing the previous item's time (which may change
+        // text above the new item) shifts the new timer's position along with it.
         pomodoro = Pomodoro(phase: .focus, marker: marker)
+        if let previous { recordFocusTime(previous) }
     }
 
+    /// Stops the timer, recording the time spent so far. Also called on close and quit.
     @objc func stopPomodoro() {
+        let previous = pomodoro
         pomodoro = nil
+        if let previous { recordFocusTime(previous) }
+    }
+
+    /// Adds a finished or interrupted focus session to its item's `⏱` total.
+    private func recordFocusTime(_ p: Pomodoro, deferred: Bool = false) {
+        guard p.phase == .focus, p.elapsed >= 30 else { return }
+        let write: () -> Void = { [weak self] in self?.textView.addFocusTime(p.elapsed, toItemAt: p.marker) }
+        // From inside a text change notification, edit on the next turn instead of re-entering.
+        if deferred { DispatchQueue.main.async(execute: write) } else { write() }
+    }
+
+    /// The item's total focus minutes, including the running session.
+    private func totalFocusMinutes(_ p: Pomodoro) -> Int {
+        textView.focusMinutes(forItemAt: p.marker) + Int((p.elapsed / 60).rounded(.down))
+    }
+
+    private func itemTitle(at marker: Int) -> String {
+        let ns = textView.string as NSString
+        return ns.substring(with: Markdown.line(in: ns, at: marker))
+            .replacingOccurrences(of: #"^\s*[-*+] \[[ xX]\] "#, with: "", options: .regularExpression)
+            .replacingOccurrences(of: #"\s*(⏱\S+|🍅)"#, with: "", options: .regularExpression)
     }
 
     @objc private func togglePomodoroPause() {
@@ -260,7 +287,13 @@ final class NoteWindowController: NSWindowController, NSWindowDelegate, NSTextVi
 
     private func tick() {
         guard let p = pomodoro else { return }
-        if p.remaining <= 0 { finishPomodoro() } else { refreshPomodoro() }
+        if p.remaining <= 0 { finishPomodoro(); return }
+        if p.phase == .focus, !p.warned, totalFocusMinutes(p) >= FocusTime.warnMinutes {
+            pomodoro?.warned = true
+            PomodoroAlert.post(title: "\(FocusTime.format(totalFocusMinutes(p))) on this task",
+                               body: "\(itemTitle(at: p.marker))\nMaybe time to switch to something else?")
+        }
+        refreshPomodoro()
     }
 
     private func refreshPomodoro() {
@@ -272,10 +305,18 @@ final class NoteWindowController: NSWindowController, NSWindowDelegate, NSTextVi
             timerButton.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
                 .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 10, weight: .semibold)
                     .applying(.init(paletteColors: [color.accent])))
-            timerButton.attributedTitle = NSAttributedString(string: p.label, attributes: [
-                .font: NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .semibold),
-                .foregroundColor: color.accent,
-            ])
+            let font = NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .semibold)
+            let title = NSMutableAttributedString(string: p.label, attributes: [.font: font, .foregroundColor: color.accent])
+            if p.phase == .focus {
+                let total = totalFocusMinutes(p)
+                if total > 0 {
+                    let over = total >= FocusTime.warnMinutes
+                    title.append(NSAttributedString(string: " · " + FocusTime.format(total), attributes: [
+                        .font: font, .foregroundColor: over ? NSColor.systemOrange : NSColor.secondaryLabelColor,
+                    ]))
+                }
+            }
+            timerButton.attributedTitle = title
             timerButton.toolTip = p.phase == .focus
                 ? (p.isPaused ? "Paused — click to resume" : "Focus — click to pause, right-click to stop")
                 : "Break — right-click to skip"
@@ -294,12 +335,11 @@ final class NoteWindowController: NSWindowController, NSWindowDelegate, NSTextVi
         guard let p = pomodoro else { return }
         switch p.phase {
         case .focus:
-            let ns = textView.string as NSString
-            let item = ns.substring(with: Markdown.line(in: ns, at: p.marker))
-                .replacingOccurrences(of: #"^\s*[-*+] \[ \] "#, with: "", options: .regularExpression)
+            let item = itemTitle(at: p.marker)
+            pomodoro = Pomodoro(phase: .rest, marker: p.marker)
+            recordFocusTime(p)
             textView.addTomato(toItemAt: p.marker)
             PomodoroAlert.post(title: "Pomodoro done 🍅", body: "\(item)\nTake a \(Int(Pomodoro.restLength / 60)) minute break.")
-            pomodoro = Pomodoro(phase: .rest, marker: p.marker)
         case .rest:
             PomodoroAlert.post(title: "Break's over", body: "Ready for the next one?")
             pomodoro = nil
@@ -311,9 +351,15 @@ final class NoteWindowController: NSWindowController, NSWindowDelegate, NSTextVi
     private func validatePomodoro() {
         guard let p = pomodoro, p.phase == .focus else { return }
         let ns = textView.string as NSString
-        guard p.marker < ns.length, let item = textView.pomodoroItem(onLine: Markdown.line(in: ns, at: p.marker)),
+        let line = Markdown.line(in: ns, at: p.marker)
+        guard p.marker < ns.length, let item = Markdown.listPrefix(in: ns, line: line), item.isCheckbox,
               item.marker.location == p.marker else {
+            pomodoro = nil // the item is gone, so there's nowhere to record its time
+            return
+        }
+        if item.isChecked {
             pomodoro = nil
+            recordFocusTime(p, deferred: true)
             return
         }
         refreshPomodoro()
@@ -444,7 +490,7 @@ final class NoteWindowController: NSWindowController, NSWindowDelegate, NSTextVi
     }
 
     func windowWillClose(_ notification: Notification) {
-        pomodoro = nil
+        stopPomodoro()
         if !isBeingDeleted {
             // A note closed with nothing in it isn't worth keeping.
             if note?.isEmpty ?? false { store.remove(noteID) } else { store.saveNow() }

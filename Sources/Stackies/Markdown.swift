@@ -225,6 +225,12 @@ enum Markdown {
             s.addAttribute(.foregroundColor, value: markerColor, range: m.range)
             if let u = URL(string: url) { s.addAttribute(.link, value: u, range: m.range(at: 1)) }
         }
+        for m in FocusTime.pattern.matches(in: str, range: line) {
+            let over = FocusTime.minutes(in: m, of: str as NSString) >= FocusTime.warnMinutes
+            s.addAttributes([.font: NSFont.monospacedDigitSystemFont(ofSize: bodySize - 2.5, weight: .medium),
+                             .foregroundColor: over ? NSColor.systemOrange : NSColor.secondaryLabelColor,
+                             .strikethroughStyle: 0], range: m.range)
+        }
         for m in bareURL.matches(in: str, range: line) {
             if let u = URL(string: (str as NSString).substring(with: m.range)) {
                 s.addAttribute(.link, value: u, range: m.range)

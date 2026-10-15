@@ -15,6 +15,8 @@ struct Pomodoro {
     }
 
     let phase: Phase
+    /// Whether this session already sent the "too long on this task" alert.
+    var warned = false
     /// Location of the item's `- [ ]` marker, kept in step with edits above it.
     var marker: Int
     let duration: TimeInterval
@@ -32,6 +34,7 @@ struct Pomodoro {
     var isPaused: Bool { endsAt == nil }
     var remaining: TimeInterval { endsAt.map { max(0, $0.timeIntervalSinceNow) } ?? pausedRemaining }
     var progress: CGFloat { CGFloat(1 - remaining / duration) }
+    var elapsed: TimeInterval { duration - remaining }
 
     var label: String {
         let seconds = Int(remaining.rounded(.up))
@@ -45,6 +48,36 @@ struct Pomodoro {
         } else {
             endsAt = Date().addingTimeInterval(pausedRemaining)
         }
+    }
+}
+
+/// Total focus time on an item, stored in its text as a tag like `⏱1h40m`.
+enum FocusTime {
+    static let pattern = try! NSRegularExpression(pattern: #"⏱(?=\d)(?:(\d+)h)?(?:(\d+)m)?"#)
+
+    /// Totals at or above this many minutes are flagged; `defaults write local.stackies.app warnHours 3`.
+    static var warnMinutes: Int {
+        let hours = UserDefaults.standard.double(forKey: "warnHours")
+        return Int((hours > 0 ? hours : 2) * 60)
+    }
+
+    static func minutes(in match: NSTextCheckingResult, of ns: NSString) -> Int {
+        func group(_ i: Int) -> Int {
+            let r = match.range(at: i)
+            return r.location == NSNotFound ? 0 : Int(ns.substring(with: r)) ?? 0
+        }
+        return group(1) * 60 + group(2)
+    }
+
+    /// The tag on `line`, if any.
+    static func tag(in ns: NSString, line: NSRange) -> (range: NSRange, minutes: Int)? {
+        guard let m = pattern.firstMatch(in: ns as String, range: line) else { return nil }
+        return (m.range, minutes(in: m, of: ns))
+    }
+
+    static func format(_ minutes: Int) -> String {
+        let h = minutes / 60, m = minutes % 60
+        return h == 0 ? "\(m)m" : m == 0 ? "\(h)h" : "\(h)h\(m)m"
     }
 }
 

@@ -90,18 +90,48 @@ final class NoteTextView: NSTextView {
         pomodoroItem(onLine: Markdown.line(in: ns, at: selectedRange().location))
     }
 
-    /// Appends a 🍅 to the item whose marker is at `marker`, keeping the selection in place.
+    /// Appends a 🍅 to the item whose marker is at `marker`.
     func addTomato(toItemAt marker: Int) {
         let line = Markdown.line(in: ns, at: marker)
-        let endsWithSpace = line.length > 0 && ns.character(at: line.upperBound - 1) == 32
-        let suffix = (endsWithSpace ? "" : " ") + "🍅"
-        let at = line.upperBound, n = (suffix as NSString).length
+        let text = ns.substring(with: line)
+        let suffix = text.hasSuffix(" ") || text.hasSuffix("🍅") ? "🍅" : " 🍅"
+        replaceKeepingSelection(NSRange(location: line.upperBound, length: 0), with: suffix)
+    }
+
+    /// Minutes already recorded in the item's `⏱` tag.
+    func focusMinutes(forItemAt marker: Int) -> Int {
+        FocusTime.tag(in: ns, line: Markdown.line(in: ns, at: marker))?.minutes ?? 0
+    }
+
+    /// Adds `seconds` to the item's `⏱` tag, creating the tag if needed.
+    func addFocusTime(_ seconds: TimeInterval, toItemAt marker: Int) {
+        let line = Markdown.line(in: ns, at: marker)
+        guard marker < ns.length, Markdown.listPrefix(in: ns, line: line)?.marker.location == marker else { return }
+        let existing = FocusTime.tag(in: ns, line: line)
+        let total = (existing?.minutes ?? 0) + Int((seconds / 60).rounded())
+        guard total > 0 else { return }
+        let tag = "⏱" + FocusTime.format(total)
+        if let existing {
+            replaceKeepingSelection(existing.range, with: tag)
+        } else {
+            let endsWithSpace = line.length > 0 && ns.character(at: line.upperBound - 1) == 32
+            replaceKeepingSelection(NSRange(location: line.upperBound, length: 0), with: (endsWithSpace ? "" : " ") + tag)
+        }
+    }
+
+    /// Replaces text without moving the user's caret/selection relative to the text around it.
+    private func replaceKeepingSelection(_ range: NSRange, with string: String) {
+        let delta = (string as NSString).length - range.length
         let selection = selectedRanges.map { value -> NSValue in
             var r = value.rangeValue
-            if r.location > at { r.location += n } else if r.upperBound > at { r.length += n }
+            if r.location >= range.upperBound && !(range.length == 0 && r.location == range.location) {
+                r.location += delta
+            } else if r.upperBound > range.location && r.location < range.upperBound {
+                r = NSRange(location: min(r.location, range.location), length: 0)
+            }
             return NSValue(range: r)
         }
-        replace(NSRange(location: at, length: 0), with: suffix)
+        replace(range, with: string)
         selectedRanges = selection
     }
 
