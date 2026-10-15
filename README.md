@@ -32,3 +32,4 @@ Notes are stored in `~/Library/Application Support/Stackies/notes.json`.
 | Tuck away to the screen edge (click the tab to bring it back) | ⌘J |
 | Note color | ⌘1–⌘7 (⌘0 for random) |
 | Delete note | ⇧⌘⌫ |
+| Reopen last closed or deleted note | ⇧⌘T |

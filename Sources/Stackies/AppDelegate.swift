@@ -29,6 +29,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
         return w
     }
 
+    /// Notes closed or deleted this session, most recent last, for ⇧⌘T. Whole snapshots, so a
+    /// deleted note (gone from the store) can be put back as it was.
+    private var recentlyClosed: [Note] = []
+
+    private func rememberClosed(_ note: Note) {
+        recentlyClosed.removeAll { $0.id == note.id }
+        recentlyClosed.append(note)
+    }
+
     private var keyController: NoteWindowController? {
         NSApp.keyWindow?.windowController as? NoteWindowController
     }
@@ -87,6 +96,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
         controller.onClose = { [weak self] c in
             guard let self else { return }
             controllers[c.noteID] = nil
+            // Empty notes are discarded on close (and deleted ones already captured), so this is
+            // only a closed note that still has something in it.
+            if let note = store.note(c.noteID) { rememberClosed(note) }
             scheduleAnchorLayout()
         }
         controller.onNewNote = { [weak self] in self?.newNote(nil) }
@@ -234,6 +246,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
         return store.notes.max { $0.created < $1.created }
     }
 
+    /// ⇧⌘T: reopens the most recently closed (or deleted) note, like reopening a browser tab.
+    @objc func reopenClosedNote(_ sender: Any?) {
+        while let note = recentlyClosed.popLast() {
+            guard controllers[note.id] == nil else { continue } // already reopened some other way
+            if store.note(note.id) == nil { store.add(note) }   // it was deleted: restore it
+            show(note.id)
+            return
+        }
+        NSSound.beep()
+    }
+
     @objc func showAllNotes(_ sender: Any?) {
         if store.notes.isEmpty { newNote(nil); return }
         store.notes.sorted { $0.modified < $1.modified }.forEach { show($0.id) }
@@ -251,7 +274,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
         }
         let alert = NSAlert()
         alert.messageText = "Delete this note?"
-        alert.informativeText = "This can't be undone."
+        alert.informativeText = "You can bring it back with ⇧⌘T until you quit Stackies."
         alert.addButton(withTitle: "Delete").hasDestructiveAction = true
         alert.addButton(withTitle: "Cancel")
         alert.beginSheetModal(for: window) { [weak self] response in
@@ -260,6 +283,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
     }
 
     private func delete(_ controller: NoteWindowController) {
+        if let note = store.note(controller.noteID), !note.isEmpty { rememberClosed(note) }
         store.remove(controller.noteID)
         controller.closeForDeletion()
     }
@@ -379,6 +403,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
             return keyController != nil
         case #selector(stopPomodoro(_:)):
             return keyController?.hasPomodoro == true
+        case #selector(reopenClosedNote(_:)):
+            return recentlyClosed.contains { controllers[$0.id] == nil }
         case #selector(closeWindow(_:)):
             return NSApp.keyWindow != nil
         default:
@@ -403,6 +429,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
             item("New Note", #selector(newNote(_:)), "n"),
             .separator(),
             item("Close", #selector(closeWindow(_:)), "w"),
+            item("Reopen Closed Note", #selector(reopenClosedNote(_:)), "t", [.command, .shift]),
             item("Delete Note…", #selector(deleteNote(_:)), "\u{8}", [.command, .shift]),
         ]))
 
