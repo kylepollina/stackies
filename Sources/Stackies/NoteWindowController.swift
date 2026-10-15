@@ -120,7 +120,7 @@ final class NoteWindowController: NSWindowController, NSWindowDelegate, NSTextVi
         let stack = NSStackView(views: buttons)
         stack.spacing = 4
         stack.translatesAutoresizingMaskIntoConstraints = false
-        let holder = NSView(frame: NSRect(x: 0, y: 0, width: 84, height: 28))
+        let holder = NSView(frame: NSRect(x: 0, y: 0, width: 92, height: 28))
         holder.addSubview(stack)
         NSLayoutConstraint.activate([
             stack.centerYAnchor.constraint(equalTo: holder.centerYAnchor),
@@ -139,11 +139,20 @@ final class NoteWindowController: NSWindowController, NSWindowDelegate, NSTextVi
         let image = NSImage(systemSymbolName: symbol, accessibilityDescription: tooltip)!
             .withSymbolConfiguration(.init(pointSize: 11, weight: .semibold))!
         let button = NSButton(image: image, target: self, action: action)
-        button.isBordered = false
         button.toolTip = tooltip
         button.contentTintColor = .secondaryLabelColor
-        button.widthAnchor.constraint(equalToConstant: 20).isActive = true
-        button.heightAnchor.constraint(equalToConstant: 20).isActive = true
+        var side: CGFloat = 20
+        if #available(macOS 26.0, *) {
+            // Liquid Glass circles, matching the system's titlebar controls.
+            button.bezelStyle = .glass
+            button.borderShape = .circle
+            button.controlSize = .small
+            side = 24
+        } else {
+            button.isBordered = false
+        }
+        button.widthAnchor.constraint(equalToConstant: side).isActive = true
+        button.heightAnchor.constraint(equalToConstant: side).isActive = true
         return button
     }
 
@@ -157,6 +166,11 @@ final class NoteWindowController: NSWindowController, NSWindowDelegate, NSTextVi
     func setColor(_ color: NoteColor) {
         store.update(noteID) { $0.color = color }
         apply(color: color)
+    }
+
+    /// Switches to a random color other than the current one.
+    func randomizeColor() {
+        setColor(NoteColor.allCases.filter { $0 != color }.randomElement() ?? color)
     }
 
     @objc func togglePin() {
@@ -237,6 +251,11 @@ final class NoteWindowController: NSWindowController, NSWindowDelegate, NSTextVi
             item.state = c == color ? .on : .off
             menu.addItem(item)
         }
+        menu.addItem(.separator())
+        let random = NSMenuItem(title: "Random", action: #selector(randomColorChosen), keyEquivalent: "")
+        random.target = self
+        random.image = NSImage(systemSymbolName: "shuffle", accessibilityDescription: "Random Color")
+        menu.addItem(random)
         let y = sender.isFlipped ? sender.bounds.maxY + 4 : -4
         menu.popUp(positioning: nil, at: NSPoint(x: 0, y: y), in: sender)
     }
@@ -244,6 +263,8 @@ final class NoteWindowController: NSWindowController, NSWindowDelegate, NSTextVi
     @objc private func colorChosen(_ sender: NSMenuItem) {
         if let raw = sender.representedObject as? String, let c = NoteColor(rawValue: raw) { setColor(c) }
     }
+
+    @objc private func randomColorChosen() { randomizeColor() }
 
     static func swatch(for color: NoteColor) -> NSImage {
         NSImage(size: NSSize(width: 14, height: 14), flipped: false) { rect in

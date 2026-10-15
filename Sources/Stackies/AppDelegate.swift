@@ -185,6 +185,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
         controller.closeForDeletion()
     }
 
+    /// ⌘W. Closes the focused note directly: `performClose:` imitates a click on the close
+    /// button, which refuses while the button is faded out (i.e. whenever the mouse is elsewhere).
+    @objc func closeWindow(_ sender: Any?) {
+        if let controller = keyController {
+            controller.close()
+        } else {
+            NSApp.keyWindow?.performClose(sender)
+        }
+    }
+
+    @objc func randomizeColor(_ sender: Any?) {
+        keyController?.randomizeColor()
+    }
+
     @objc func togglePin(_ sender: Any?) {
         keyController?.togglePin()
     }
@@ -258,12 +272,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
         switch item.action {
         case #selector(togglePin(_:)):
             item.state = keyController?.isPinned == true ? .on : .off
+            // AppKit will also match ⇧⌘P to this ⌘P item; leave that combo free for other apps.
+            if let event = NSApp.currentEvent, event.type == .keyDown, event.modifierFlags.contains(.shift) {
+                return false
+            }
             return keyController != nil
         case #selector(setNoteColor(_:)):
             item.state = keyController?.color.rawValue == item.representedObject as? String ? .on : .off
             return keyController != nil
-        case #selector(deleteNote(_:)):
+        case #selector(deleteNote(_:)), #selector(randomizeColor(_:)):
             return keyController != nil
+        case #selector(closeWindow(_:)):
+            return NSApp.keyWindow != nil
         default:
             return true
         }
@@ -285,7 +305,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
         main.addItem(submenu("File", [
             item("New Note", #selector(newNote(_:)), "n"),
             .separator(),
-            item("Close", #selector(NSWindow.performClose(_:)), "w"),
+            item("Close", #selector(closeWindow(_:)), "w"),
             item("Delete Note…", #selector(deleteNote(_:)), "\u{8}", [.command, .shift]),
         ]))
 
@@ -322,8 +342,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
             return i
         }
         main.addItem(submenu("Note", [
-            item("Keep on Top", #selector(togglePin(_:)), "p", [.command, .shift]),
-            submenu("Color", colorItems),
+            item("Keep on Top", #selector(togglePin(_:)), "p"),
+            submenu("Color", colorItems + [
+                .separator(),
+                item("Random Color", #selector(randomizeColor(_:)), "0"),
+            ]),
         ]))
 
         closedNotesMenu.delegate = self
