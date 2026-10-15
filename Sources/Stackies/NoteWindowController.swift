@@ -19,6 +19,9 @@ final class NoteWindowController: NSWindowController, NSWindowDelegate, NSTextVi
     private var colorButton: NSButton!
     private var isHovering = false
     private var isBeingDeleted = false
+    private var timerButton: NSButton!
+    private var ticker: Timer?
+    private var pomodoro: Pomodoro? { didSet { pomodoroChanged() } }
 
     private var note: Note? { store.note(noteID) }
     var color: NoteColor { note?.color ?? .yellow }
@@ -43,6 +46,7 @@ final class NoteWindowController: NSWindowController, NSWindowDelegate, NSTextVi
         configureWindow(window, frame: note.frame)
         configureTextView(text: note.text)
         configureTitlebarControls(window)
+        configurePomodoro(window)
         apply(color: note.color)
         apply(pinned: note.isPinned)
         updateTitle()
@@ -157,6 +161,41 @@ final class NoteWindowController: NSWindowController, NSWindowDelegate, NSTextVi
         return button
     }
 
+    private func configurePomodoro(_ window: NSWindow) {
+        textView.onStartPomodoro = { [weak self] marker in self?.startPomodoro(marker: marker) }
+        textView.onWillEdit = { [weak self] range, newLength in
+            // Keep the timer on its item when text above it grows or shrinks.
+            guard let self, var p = pomodoro, p.phase == .focus, range.upperBound <= p.marker else { return }
+            p.marker += newLength - range.length
+            pomodoro = p
+        }
+
+        timerButton = NSButton(title: "", target: self, action: #selector(togglePomodoroPause))
+        timerButton.translatesAutoresizingMaskIntoConstraints = false
+        timerButton.font = .monospacedDigitSystemFont(ofSize: 11, weight: .semibold)
+        timerButton.imagePosition = .imageLeading
+        timerButton.controlSize = .small
+        if #available(macOS 26.0, *) {
+            timerButton.bezelStyle = .glass
+            timerButton.borderShape = .capsule
+        } else {
+            timerButton.bezelStyle = .inline
+        }
+        let menu = NSMenu()
+        menu.addItem(withTitle: "Pause / Resume", action: #selector(togglePomodoroPause), keyEquivalent: "").target = self
+        menu.addItem(withTitle: "Stop", action: #selector(stopPomodoro), keyEquivalent: "").target = self
+        timerButton.menu = menu
+        timerButton.isHidden = true
+
+        // The titlebar view sits above the content view, so the pill goes in it to receive clicks.
+        guard let close = window.standardWindowButton(.closeButton), let titlebar = close.superview else { return }
+        titlebar.addSubview(timerButton)
+        NSLayoutConstraint.activate([
+            timerButton.centerXAnchor.constraint(equalTo: titlebar.centerXAnchor),
+            timerButton.centerYAnchor.constraint(equalTo: close.centerYAnchor),
+        ])
+    }
+
     // MARK: - Public actions
 
     func focus() {
@@ -180,6 +219,100 @@ final class NoteWindowController: NSWindowController, NSWindowDelegate, NSTextVi
         apply(pinned: pinned)
     }
 
+    var hasPomodoro: Bool { pomodoro != nil }
+
+    /// ⌘T: starts a pomodoro on the item at the caret, or pauses/resumes the one already on it.
+    func startPomodoroAtCaret() {
+        guard let item = textView.pomodoroItemAtCaret else { NSSound.beep(); return }
+        if let p = pomodoro, p.phase == .focus, p.marker == item.marker.location {
+            togglePomodoroPause()
+        } else {
+            startPomodoro(marker: item.marker.location)
+        }
+    }
+
+    private func startPomodoro(marker: Int) {
+        PomodoroAlert.requestPermission()
+        pomodoro = Pomodoro(phase: .focus, marker: marker)
+    }
+
+    @objc func stopPomodoro() {
+        pomodoro = nil
+    }
+
+    @objc private func togglePomodoroPause() {
+        pomodoro?.togglePause()
+    }
+
+    private func pomodoroChanged() {
+        ticker?.invalidate()
+        ticker = nil
+        if let p = pomodoro, !p.isPaused {
+            let t = Timer(timeInterval: 1, repeats: true) { [weak self] _ in
+                MainActor.assumeIsolated { self?.tick() }
+            }
+            t.tolerance = 0.1
+            RunLoop.main.add(t, forMode: .common) // keep counting during menus and resizes
+            ticker = t
+        }
+        refreshPomodoro()
+    }
+
+    private func tick() {
+        guard let p = pomodoro else { return }
+        if p.remaining <= 0 { finishPomodoro() } else { refreshPomodoro() }
+    }
+
+    private func refreshPomodoro() {
+        let p = pomodoro
+        timerButton.isHidden = p == nil
+        if let p {
+            let symbol = p.isPaused ? "play.fill" : p.phase == .focus ? "timer" : "cup.and.saucer.fill"
+            // Colored explicitly: glass buttons don't reliably apply contentTintColor.
+            timerButton.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
+                .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 10, weight: .semibold)
+                    .applying(.init(paletteColors: [color.accent])))
+            timerButton.attributedTitle = NSAttributedString(string: p.label, attributes: [
+                .font: NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .semibold),
+                .foregroundColor: color.accent,
+            ])
+            timerButton.toolTip = p.phase == .focus
+                ? (p.isPaused ? "Paused — click to resume" : "Focus — click to pause, right-click to stop")
+                : "Break — right-click to skip"
+        }
+        let focus = p.flatMap { $0.phase == .focus ? $0 : nil }
+        textView.timedMarker = focus?.marker
+        layoutManager.timer = focus.map { ($0.marker, $0.progress, $0.isPaused) }
+        textView.needsDisplay = true
+    }
+
+    private func finishPomodoro() {
+        guard let p = pomodoro else { return }
+        switch p.phase {
+        case .focus:
+            let ns = textView.string as NSString
+            let item = ns.substring(with: Markdown.line(in: ns, at: p.marker))
+                .replacingOccurrences(of: #"^[-*+] \[ \] "#, with: "", options: .regularExpression)
+            textView.addTomato(toItemAt: p.marker)
+            PomodoroAlert.post(title: "Pomodoro done 🍅", body: "\(item)\nTake a \(Int(Pomodoro.restLength / 60)) minute break.")
+            pomodoro = Pomodoro(phase: .rest, marker: p.marker)
+        case .rest:
+            PomodoroAlert.post(title: "Break's over", body: "Ready for the next one?")
+            pomodoro = nil
+        }
+    }
+
+    /// Ends the focus timer if its item was deleted, indented, or checked off.
+    private func validatePomodoro() {
+        guard let p = pomodoro, p.phase == .focus else { return }
+        let ns = textView.string as NSString
+        guard p.marker < ns.length, let item = textView.pomodoroItem(onLine: Markdown.line(in: ns, at: p.marker)),
+              item.marker.location == p.marker else {
+            pomodoro = nil
+            return
+        }
+    }
+
     /// Closes the window without the empty-note/save handling in `windowWillClose`.
     func closeForDeletion() {
         isBeingDeleted = true
@@ -197,6 +330,7 @@ final class NoteWindowController: NSWindowController, NSWindowDelegate, NSTextVi
                                        .cursor: NSCursor.pointingHand]
         // A real swatch rather than a tinted symbol: glass buttons don't reliably honor the tint.
         colorButton.image = Self.swatch(for: color, size: 13)
+        if timerButton != nil { refreshPomodoro() }
         textView.needsDisplay = true
     }
 
@@ -289,6 +423,7 @@ final class NoteWindowController: NSWindowController, NSWindowDelegate, NSTextVi
             $0.modified = Date()
         }
         updateTitle()
+        validatePomodoro()
     }
 
     func windowDidBecomeKey(_ notification: Notification) { onBecomeKey?(self) }
@@ -303,6 +438,7 @@ final class NoteWindowController: NSWindowController, NSWindowDelegate, NSTextVi
     }
 
     func windowWillClose(_ notification: Notification) {
+        pomodoro = nil
         if !isBeingDeleted {
             // A note closed with nothing in it isn't worth keeping.
             if note?.isEmpty ?? false { store.remove(noteID) } else { store.saveNow() }

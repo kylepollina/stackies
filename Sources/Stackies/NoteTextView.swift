@@ -5,10 +5,22 @@ final class NoteTextView: NSTextView {
     private var noteLayout: NoteLayoutManager? { layoutManager as? NoteLayoutManager }
     private var ns: NSString { (textStorage?.string ?? "") as NSString }
 
+    /// Called with an item's marker location when its pomodoro button is clicked.
+    var onStartPomodoro: ((Int) -> Void)?
+    /// Called before every text change with the affected range and the replacement's length.
+    var onWillEdit: ((NSRange, Int) -> Void)?
+    /// Marker of the item that already has a running pomodoro (it gets no start button).
+    var timedMarker: Int? { didSet { if timedMarker != nil { setHoverMarker(nil) } } }
+
     // MARK: - Checkbox clicking
 
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
+        if let marker = timerButtonMarker(at: point) {
+            onStartPomodoro?(marker)
+            setHoverMarker(nil)
+            return
+        }
         if let marker = checkboxMarker(at: point) {
             toggleCheckbox(marker: marker)
             return
@@ -17,11 +29,87 @@ final class NoteTextView: NSTextView {
     }
 
     override func mouseMoved(with event: NSEvent) {
-        if checkboxMarker(at: convert(event.locationInWindow, from: nil)) != nil {
+        let point = convert(event.locationInWindow, from: nil)
+        setHoverMarker(pomodoroItemMarker(at: point))
+        if checkboxMarker(at: point) != nil || timerButtonMarker(at: point) != nil {
             NSCursor.pointingHand.set()
         } else {
             super.mouseMoved(with: event)
         }
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        setHoverMarker(nil)
+        super.mouseExited(with: event)
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if !trackingAreas.contains(where: { $0.owner === self && $0.userInfo?["hover"] != nil }) {
+            addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+                                           owner: self, userInfo: ["hover": true]))
+        }
+    }
+
+    // MARK: - Pomodoro
+
+    private func setHoverMarker(_ marker: Int?) {
+        guard let lm = noteLayout, lm.hoverMarker != marker else { return }
+        lm.hoverMarker = marker
+        needsDisplay = true
+    }
+
+    /// A top-level, unchecked checklist item at `point` (anywhere on its first line) that could get a timer.
+    private func pomodoroItemMarker(at point: NSPoint) -> Int? {
+        guard let lm = noteLayout, let container = textContainer, ns.length > 0 else { return nil }
+        let containerPoint = NSPoint(x: point.x - textContainerOrigin.x, y: point.y - textContainerOrigin.y)
+        let glyph = lm.glyphIndex(for: containerPoint, in: container)
+        let line = Markdown.line(in: ns, at: lm.characterIndexForGlyph(at: glyph))
+        guard let p = pomodoroItem(onLine: line), p.marker.location != timedMarker else { return nil }
+        let firstLine = lm.lineFragmentRect(forGlyphAt: lm.glyphIndexForCharacter(at: p.marker.location), effectiveRange: nil)
+        guard containerPoint.y >= firstLine.minY, containerPoint.y < firstLine.maxY else { return nil }
+        return p.marker.location
+    }
+
+    private func timerButtonMarker(at point: NSPoint) -> Int? {
+        guard let lm = noteLayout, let marker = lm.hoverMarker,
+              let p = pomodoroItem(onLine: Markdown.line(in: ns, at: marker)),
+              let r = lm.timerButtonRect(forMarker: p.marker, origin: textContainerOrigin),
+              r.insetBy(dx: -4, dy: -4).contains(point) else { return nil }
+        return marker
+    }
+
+    /// The prefix of `line` if it's a top-level, unchecked checklist item.
+    func pomodoroItem(onLine line: NSRange) -> ListPrefix? {
+        guard let p = Markdown.listPrefix(in: ns, line: line), p.isCheckbox, !p.isChecked, p.indent.length == 0 else { return nil }
+        return p
+    }
+
+    /// The pomodoro-able item at the caret, if any.
+    var pomodoroItemAtCaret: ListPrefix? {
+        pomodoroItem(onLine: Markdown.line(in: ns, at: selectedRange().location))
+    }
+
+    /// Appends a 🍅 to the item whose marker is at `marker`, keeping the selection in place.
+    func addTomato(toItemAt marker: Int) {
+        let line = Markdown.line(in: ns, at: marker)
+        let endsWithSpace = line.length > 0 && ns.character(at: line.upperBound - 1) == 32
+        let suffix = (endsWithSpace ? "" : " ") + "🍅"
+        let at = line.upperBound, n = (suffix as NSString).length
+        let selection = selectedRanges.map { value -> NSValue in
+            var r = value.rangeValue
+            if r.location > at { r.location += n } else if r.upperBound > at { r.length += n }
+            return NSValue(range: r)
+        }
+        replace(NSRange(location: at, length: 0), with: suffix)
+        selectedRanges = selection
+    }
+
+    override func shouldChangeText(in affectedCharRange: NSRange, replacementString: String?) -> Bool {
+        guard super.shouldChangeText(in: affectedCharRange, replacementString: replacementString) else { return false }
+        // A nil string means an attributes-only change, so the length stays the same.
+        onWillEdit?(affectedCharRange, replacementString.map { ($0 as NSString).length } ?? affectedCharRange.length)
+        return true
     }
 
     private func checkboxMarker(at point: NSPoint) -> NSRange? {

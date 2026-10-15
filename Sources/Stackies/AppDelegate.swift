@@ -249,6 +249,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
         keyController?.randomizeColor()
     }
 
+    @objc func startPomodoro(_ sender: Any?) {
+        keyController?.startPomodoroAtCaret()
+    }
+
+    @objc func stopPomodoro(_ sender: Any?) {
+        keyController?.stopPomodoro()
+    }
+
     @objc func togglePin(_ sender: Any?) {
         keyController?.togglePin()
     }
@@ -332,6 +340,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
             return keyController != nil
         case #selector(deleteNote(_:)), #selector(randomizeColor(_:)):
             return keyController != nil
+        case #selector(startPomodoro(_:)):
+            return keyController != nil
+        case #selector(stopPomodoro(_:)):
+            return keyController?.hasPomodoro == true
         case #selector(closeWindow(_:)):
             return NSApp.keyWindow != nil
         default:
@@ -397,6 +409,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
                 .separator(),
                 item("Random Color", #selector(randomizeColor(_:)), "0"),
             ]),
+            .separator(),
+            item("Start Pomodoro", #selector(startPomodoro(_:)), "t"),
+            item("Stop Pomodoro", #selector(stopPomodoro(_:))),
         ]))
 
         closedNotesMenu.delegate = self

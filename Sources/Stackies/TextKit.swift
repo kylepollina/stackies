@@ -54,6 +54,10 @@ final class MarkdownTextStorage: NSTextStorage {
 /// Draws checkboxes and bullet dots in place of their (invisible) markdown characters.
 final class NoteLayoutManager: NSLayoutManager {
     var accentColor: NSColor = .controlAccentColor
+    /// Marker location of the checklist item whose "start pomodoro" button is showing.
+    var hoverMarker: Int?
+    /// The item with a running pomodoro; its checkbox is drawn as a progress ring.
+    var timer: (marker: Int, progress: CGFloat, paused: Bool)?
 
     override func drawGlyphs(forGlyphRange glyphsToShow: NSRange, at origin: NSPoint) {
         super.drawGlyphs(forGlyphRange: glyphsToShow, at: origin)
@@ -62,7 +66,11 @@ final class NoteLayoutManager: NSLayoutManager {
 
         storage.enumerateAttribute(.checkbox, in: chars) { value, range, _ in
             guard let checked = value as? Bool, let box = checkboxRect(forMarker: range, origin: origin) else { return }
-            drawCheckbox(in: box, checked: checked)
+            let ring = timer.flatMap { $0.marker == range.location ? ($0.progress, $0.paused) : nil }
+            drawCheckbox(in: box, checked: checked, timer: ring)
+            if hoverMarker == range.location, let button = timerButtonRect(forMarker: range, origin: origin) {
+                drawTimerButton(in: button)
+            }
         }
         storage.enumerateAttribute(.bullet, in: chars) { value, range, _ in
             guard value != nil, let g = markerGeometry(range, origin: origin) else { return }
@@ -79,6 +87,26 @@ final class NoteLayoutManager: NSLayoutManager {
         return NSRect(x: (g.rect.midX - d / 2).rounded(), y: (g.midY - d / 2).rounded(), width: d, height: d)
     }
 
+    /// The "start pomodoro" button at the right end of the item's first line.
+    func timerButtonRect(forMarker range: NSRange, origin: NSPoint) -> NSRect? {
+        guard let g = markerGeometry(range, origin: origin) else { return nil }
+        let glyph = glyphIndexForCharacter(at: range.location)
+        let line = lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil)
+        let padding = textContainer(forGlyphAt: glyph, effectiveRange: nil)?.lineFragmentPadding ?? 0
+        let d: CGFloat = 18
+        return NSRect(x: (origin.x + line.maxX - padding - d).rounded(), y: (g.midY - d / 2).rounded(), width: d, height: d)
+    }
+
+    private func drawTimerButton(in r: NSRect) {
+        let config = NSImage.SymbolConfiguration(pointSize: 12, weight: .medium)
+            .applying(.init(paletteColors: [accentColor]))
+        guard let image = NSImage(systemSymbolName: "timer", accessibilityDescription: "Start Pomodoro")?
+            .withSymbolConfiguration(config) else { return }
+        let s = image.size
+        image.draw(in: NSRect(x: r.midX - s.width / 2, y: r.midY - s.height / 2, width: s.width, height: s.height),
+                   from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
+    }
+
     private func markerGeometry(_ range: NSRange, origin: NSPoint) -> (rect: NSRect, midY: CGFloat)? {
         let glyphs = glyphRange(forCharacterRange: range, actualCharacterRange: nil)
         guard glyphs.length > 0, let container = textContainer(forGlyphAt: glyphs.location, effectiveRange: nil) else {
@@ -92,7 +120,7 @@ final class NoteLayoutManager: NSLayoutManager {
         return (rect, baseline - (font.xHeight + font.capHeight) / 4)
     }
 
-    private func drawCheckbox(in r: NSRect, checked: Bool) {
+    private func drawCheckbox(in r: NSRect, checked: Bool, timer: (progress: CGFloat, paused: Bool)?) {
         if checked {
             accentColor.setFill()
             NSBezierPath(ovalIn: r).fill()
@@ -105,6 +133,23 @@ final class NoteLayoutManager: NSLayoutManager {
             check.lineJoinStyle = .round
             NSColor.white.setStroke()
             check.stroke()
+        } else if let timer {
+            // Progress ring: a faint track, then the elapsed share clockwise from 12 o'clock.
+            // (The text view is flipped, so increasing angles run clockwise on screen.)
+            accentColor.withAlphaComponent(0.14).setFill()
+            NSBezierPath(ovalIn: r).fill()
+            let center = NSPoint(x: r.midX, y: r.midY), radius = r.width / 2 - 1
+            let track = NSBezierPath(ovalIn: r.insetBy(dx: 1, dy: 1))
+            track.lineWidth = 2
+            accentColor.withAlphaComponent(0.3).setStroke()
+            track.stroke()
+            let arc = NSBezierPath()
+            arc.appendArc(withCenter: center, radius: radius, startAngle: -90,
+                          endAngle: -90 + 360 * max(timer.progress, 0.001), clockwise: false)
+            arc.lineWidth = 2
+            arc.lineCapStyle = .round
+            accentColor.withAlphaComponent(timer.paused ? 0.5 : 1).setStroke()
+            arc.stroke()
         } else {
             let circle = NSBezierPath(ovalIn: r.insetBy(dx: 0.75, dy: 0.75))
             circle.lineWidth = 1.5
