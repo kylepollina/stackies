@@ -1,0 +1,32 @@
+# Stackies
+
+A small, modern sticky-notes app for macOS: quick scratchpads for todos and short-lived reminders.
+
+- Autosaves everything (text, position, size, color) — no save button
+- Live markdown styling: headings, **bold**, _italic_, ~~strike~~, `code`, links, lists, quotes
+- `- [ ]` checklists with clickable checkboxes
+- Per-note colors and "keep on top" pinning
+- Plays nicely with Stage Manager: all notes share one stage
+
+## Build
+
+Requires macOS 14+ and Xcode (or the Swift toolchain).
+
+```sh
+./scripts/build.sh            # builds build/Stackies.app
+./scripts/build.sh --install  # also copies it to /Applications
+```
+
+Notes are stored in `~/Library/Application Support/Stackies/notes.json`.
+
+## Shortcuts
+
+| Action | Shortcut |
+|---|---|
+| New note | ⌘N |
+| Toggle checklist | ⌘L |
+| Mark done | ⌘↩ |
+| Bold / Italic / Strikethrough | ⌘B / ⌘I / ⇧⌘X |
+| Keep on top | ⇧⌘P |
+| Note color | ⌘1–⌘7 |
+| Delete note | ⇧⌘⌫ |

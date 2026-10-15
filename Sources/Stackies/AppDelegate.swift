@@ -1,0 +1,367 @@
+import AppKit
+
+@MainActor
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenuItemValidation {
+    private lazy var store = NoteStore()
+    private var controllers: [UUID: NoteWindowController] = [:]
+    private let closedNotesMenu = NSMenu(title: "Closed Notes")
+
+    /// Invisible parent for every note window. Stage Manager keeps child windows in their
+    /// parent's stage, so this makes all notes share one stage instead of each new note getting
+    /// its own (which pushes the others to the side strip). Its frame tracks the bounding box of
+    /// the notes (see `updateAnchorFrame`) because Stage Manager lays out the stage's thumbnail
+    /// around it. Moving it programmatically does not drag the child notes along.
+    private lazy var anchorWindow: NSWindow = {
+        let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1, height: 1),
+                         styleMask: [.borderless], backing: .buffered, defer: false)
+        w.isReleasedWhenClosed = false
+        w.backgroundColor = .clear
+        w.isOpaque = false
+        w.hasShadow = false
+        w.alphaValue = 0
+        w.ignoresMouseEvents = true
+        w.isExcludedFromWindowsMenu = true
+        w.collectionBehavior = [.ignoresCycle]
+        return w
+    }()
+
+    private var keyController: NoteWindowController? {
+        NSApp.keyWindow?.windowController as? NoteWindowController
+    }
+
+    // MARK: - Lifecycle
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        NSApp.mainMenu = buildMainMenu()
+        let notes = store.notes.sorted { $0.modified < $1.modified }
+        if notes.isEmpty {
+            newNote(nil)
+        } else {
+            notes.forEach { show($0.id) }
+        }
+        NSApp.activate()
+    }
+
+    private var activeSince: Date?
+    func applicationDidBecomeActive(_ notification: Notification) { activeSince = Date() }
+    func applicationDidResignActive(_ notification: Notification) { activeSince = nil }
+
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        // The invisible anchor window counts as "visible", so check for open notes instead of `flag`.
+        if controllers.isEmpty { showAllNotes(nil) }
+        return true
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        store.removeEmptyNotes()
+        store.saveNow()
+    }
+
+    func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {
+        let menu = NSMenu()
+        menu.addItem(NSMenuItem(title: "New Note", action: #selector(newNote(_:)), keyEquivalent: ""))
+        menu.addItem(NSMenuItem(title: "Show All Notes", action: #selector(showAllNotes(_:)), keyEquivalent: ""))
+        return menu
+    }
+
+    // MARK: - Notes
+
+    private func show(_ id: UUID) {
+        if let existing = controllers[id] {
+            existing.focus()
+            return
+        }
+        guard let note = store.note(id) else { return }
+        let controller = NoteWindowController(note: note, store: store)
+        controller.onClose = { [weak self] c in
+            guard let self else { return }
+            controllers[c.noteID] = nil
+            if controllers.isEmpty { anchorWindow.orderOut(nil) } else { updateAnchorFrame() }
+        }
+        controller.onNewNote = { [weak self] in self?.newNote(nil) }
+        controller.onBecomeKey = { [weak self] c in self?.raiseInStage(c.window) }
+        controller.onFrameChange = { [weak self] in self?.updateAnchorFrame() }
+        controllers[id] = controller
+        if let window = controller.window {
+            if !anchorWindow.isVisible { anchorWindow.orderFront(nil) }
+            anchorWindow.addChildWindow(window, ordered: .above)
+            updateAnchorFrame()
+        }
+        controller.focus()
+    }
+
+    private var anchorUpdatePending = false
+    private var isMovingAnchor = false
+
+    /// Keeps the anchor covering exactly the area spanned by the open notes. Coalesced and
+    /// deferred until no mouse button is held: moving the anchor mid-drag fights the drag.
+    private func updateAnchorFrame() {
+        guard !isMovingAnchor, !anchorUpdatePending else { return }
+        anchorUpdatePending = true
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(100))
+            guard let self else { return }
+            anchorUpdatePending = false
+            if NSEvent.pressedMouseButtons != 0 {
+                updateAnchorFrame()
+            } else {
+                applyAnchorFrame()
+            }
+        }
+    }
+
+    private func applyAnchorFrame() {
+        let windows = controllers.values.compactMap(\.window)
+        guard let first = windows.first else { return }
+        let union = windows.dropFirst().reduce(first.frame) { $0.union($1.frame) }
+        guard anchorWindow.frame != union else { return }
+
+        // Moving a parent window can drag its children along (and each child move would call
+        // back into here), so pin every note back to where it was.
+        let origins = windows.map { ($0, $0.frame.origin) }
+        isMovingAnchor = true
+        anchorWindow.setFrame(union, display: false)
+        for (window, origin) in origins where window.frame.origin != origin {
+            window.setFrameOrigin(origin)
+        }
+        isMovingAnchor = false
+    }
+
+    /// Sibling child windows keep their attach order regardless of focus, so re-attach the
+    /// focused note to move it to the top of the stack. A detached window is momentarily up for
+    /// grabs by Stage Manager, so only do this once we've been the settled, active app for a
+    /// moment — never mid stage-switch, or the note can get adopted into another app's stage.
+    private func raiseInStage(_ window: NSWindow?) {
+        guard NSApp.isActive, let activeSince, Date().timeIntervalSince(activeSince) > 0.8 else { return }
+        guard let window, window.parent === anchorWindow, anchorWindow.childWindows?.last !== window else { return }
+        anchorWindow.removeChildWindow(window)
+        anchorWindow.addChildWindow(window, ordered: .above)
+    }
+
+    @objc func newNote(_ sender: Any?) {
+        let previous = previousNote
+        // Random, but never the same color twice in a row so neighboring notes stay distinct.
+        let colors = NoteColor.allCases.filter { $0 != previous?.color }
+        let note = Note(color: colors.randomElement() ?? .yellow, frame: frameForNewNote(after: previous))
+        store.add(note)
+        show(note.id)
+    }
+
+    /// The note a new one is based on: the focused note, or else the most recently created one.
+    private var previousNote: Note? {
+        if let id = keyController?.noteID, let note = store.note(id) { return note }
+        return store.notes.max { $0.created < $1.created }
+    }
+
+    @objc func showAllNotes(_ sender: Any?) {
+        if store.notes.isEmpty { newNote(nil); return }
+        store.notes.sorted { $0.modified < $1.modified }.forEach { show($0.id) }
+    }
+
+    @objc func openClosedNote(_ sender: NSMenuItem) {
+        if let id = sender.representedObject as? UUID { show(id) }
+    }
+
+    @objc func deleteNote(_ sender: Any?) {
+        guard let controller = keyController, let window = controller.window else { return }
+        if store.note(controller.noteID)?.isEmpty ?? true {
+            delete(controller)
+            return
+        }
+        let alert = NSAlert()
+        alert.messageText = "Delete this note?"
+        alert.informativeText = "This can't be undone."
+        alert.addButton(withTitle: "Delete").hasDestructiveAction = true
+        alert.addButton(withTitle: "Cancel")
+        alert.beginSheetModal(for: window) { [weak self] response in
+            if response == .alertFirstButtonReturn { self?.delete(controller) }
+        }
+    }
+
+    private func delete(_ controller: NoteWindowController) {
+        store.remove(controller.noteID)
+        controller.closeForDeletion()
+    }
+
+    @objc func togglePin(_ sender: Any?) {
+        keyController?.togglePin()
+    }
+
+    @objc func setNoteColor(_ sender: NSMenuItem) {
+        if let raw = sender.representedObject as? String, let color = NoteColor(rawValue: raw) {
+            keyController?.setColor(color)
+        }
+    }
+
+    /// Places a new note on a grid around `previous` (same size): a random free neighbor slot —
+    /// right, left, up or down — spiraling outward ring by ring if those are taken or off screen.
+    /// Falls back to a small cascade when no free slot exists.
+    private func frameForNewNote(after previous: Note?) -> NSRect {
+        let size = previous?.frame.size ?? NSSize(width: 300, height: 320)
+        let base = previous?.frame
+        let screen = (NSScreen.screens.first { base.map($0.visibleFrame.intersects) ?? false } ?? NSScreen.main)?
+            .visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+
+        guard let base else {
+            return NSRect(x: screen.maxX - size.width - 40, y: screen.maxY - size.height - 40,
+                          width: size.width, height: size.height)
+        }
+
+        let gap: CGFloat = 12
+        let occupied = controllers.values.compactMap { $0.window?.frame }
+        func slot(_ dx: Int, _ dy: Int) -> NSRect {
+            NSRect(x: base.minX + CGFloat(dx) * (size.width + gap), y: base.minY + CGFloat(dy) * (size.height + gap),
+                   width: size.width, height: size.height)
+        }
+        func isFree(_ r: NSRect) -> Bool {
+            screen.contains(r) && !occupied.contains { $0.insetBy(dx: 1, dy: 1).intersects(r) }
+        }
+
+        for ring in 1...8 {
+            var cells: [(Int, Int)] = []
+            for dx in -ring...ring {
+                for dy in -ring...ring where max(abs(dx), abs(dy)) == ring { cells.append((dx, dy)) }
+            }
+            // Random order, but straight neighbors before diagonals within each ring.
+            let ordered = cells.shuffled().sorted { abs($0.0) + abs($0.1) < abs($1.0) + abs($1.1) }
+            if let free = ordered.lazy.map(slot).first(where: isFree) { return free }
+        }
+
+        var origin = NSPoint(x: base.minX + 28, y: base.maxY - 28 - size.height)
+        origin.x = min(max(origin.x, screen.minX), screen.maxX - size.width)
+        origin.y = min(max(origin.y, screen.minY), screen.maxY - size.height)
+        return NSRect(origin: origin, size: size)
+    }
+
+    // MARK: - Menus
+
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        guard menu === closedNotesMenu else { return }
+        menu.removeAllItems()
+        let closed = store.notes.filter { controllers[$0.id] == nil }.sorted { $0.modified > $1.modified }
+        if closed.isEmpty {
+            let empty = NSMenuItem(title: "No Closed Notes", action: nil, keyEquivalent: "")
+            empty.isEnabled = false
+            menu.addItem(empty)
+        }
+        for note in closed {
+            let item = NSMenuItem(title: note.title, action: #selector(openClosedNote(_:)), keyEquivalent: "")
+            item.representedObject = note.id
+            item.image = NoteWindowController.swatch(for: note.color)
+            menu.addItem(item)
+        }
+    }
+
+    func validateMenuItem(_ item: NSMenuItem) -> Bool {
+        switch item.action {
+        case #selector(togglePin(_:)):
+            item.state = keyController?.isPinned == true ? .on : .off
+            return keyController != nil
+        case #selector(setNoteColor(_:)):
+            item.state = keyController?.color.rawValue == item.representedObject as? String ? .on : .off
+            return keyController != nil
+        case #selector(deleteNote(_:)):
+            return keyController != nil
+        default:
+            return true
+        }
+    }
+
+    private func buildMainMenu() -> NSMenu {
+        let main = NSMenu()
+
+        main.addItem(submenu("Stackies", [
+            item("About Stackies", #selector(NSApplication.orderFrontStandardAboutPanel(_:))),
+            .separator(),
+            item("Hide Stackies", #selector(NSApplication.hide(_:)), "h"),
+            item("Hide Others", #selector(NSApplication.hideOtherApplications(_:)), "h", [.command, .option]),
+            item("Show All", #selector(NSApplication.unhideAllApplications(_:))),
+            .separator(),
+            item("Quit Stackies", #selector(NSApplication.terminate(_:)), "q"),
+        ]))
+
+        main.addItem(submenu("File", [
+            item("New Note", #selector(newNote(_:)), "n"),
+            .separator(),
+            item("Close", #selector(NSWindow.performClose(_:)), "w"),
+            item("Delete Note…", #selector(deleteNote(_:)), "\u{8}", [.command, .shift]),
+        ]))
+
+        main.addItem(submenu("Edit", [
+            item("Undo", Selector(("undo:")), "z"),
+            item("Redo", Selector(("redo:")), "z", [.command, .shift]),
+            .separator(),
+            item("Cut", #selector(NSText.cut(_:)), "x"),
+            item("Copy", #selector(NSText.copy(_:)), "c"),
+            item("Paste", #selector(NSText.paste(_:)), "v"),
+            item("Select All", #selector(NSText.selectAll(_:)), "a"),
+            .separator(),
+            submenu("Find", [
+                findItem("Find…", .showFindInterface, "f"),
+                findItem("Find Next", .nextMatch, "g"),
+                findItem("Find Previous", .previousMatch, "g", [.command, .shift]),
+                findItem("Use Selection for Find", .setSearchString, "e"),
+            ]),
+        ]))
+
+        main.addItem(submenu("Format", [
+            item("Checklist", #selector(NoteTextView.toggleChecklist(_:)), "l"),
+            item("Mark as Done", #selector(NoteTextView.toggleDone(_:)), "\r"),
+            .separator(),
+            item("Bold", #selector(NoteTextView.toggleBold(_:)), "b"),
+            item("Italic", #selector(NoteTextView.toggleItalic(_:)), "i"),
+            item("Strikethrough", #selector(NoteTextView.toggleStrikethrough(_:)), "x", [.command, .shift]),
+        ]))
+
+        let colorItems = NoteColor.allCases.enumerated().map { index, color in
+            let i = item(color.displayName, #selector(setNoteColor(_:)), "\(index + 1)")
+            i.representedObject = color.rawValue
+            i.image = NoteWindowController.swatch(for: color)
+            return i
+        }
+        main.addItem(submenu("Note", [
+            item("Keep on Top", #selector(togglePin(_:)), "p", [.command, .shift]),
+            submenu("Color", colorItems),
+        ]))
+
+        closedNotesMenu.delegate = self
+        let closedItem = NSMenuItem(title: "Closed Notes", action: nil, keyEquivalent: "")
+        closedItem.submenu = closedNotesMenu
+        let windowMenu = submenu("Window", [
+            item("Minimize", #selector(NSWindow.miniaturize(_:)), "m"),
+            .separator(),
+            item("Show All Notes", #selector(showAllNotes(_:)), "a", [.command, .shift]),
+            closedItem,
+            .separator(),
+            item("Bring All to Front", #selector(NSApplication.arrangeInFront(_:))),
+        ])
+        main.addItem(windowMenu)
+        NSApp.windowsMenu = windowMenu.submenu
+
+        return main
+    }
+
+    private func item(_ title: String, _ action: Selector?, _ key: String = "",
+                      _ modifiers: NSEvent.ModifierFlags = .command) -> NSMenuItem {
+        let item = NSMenuItem(title: title, action: action, keyEquivalent: key)
+        item.keyEquivalentModifierMask = modifiers
+        return item
+    }
+
+    private func findItem(_ title: String, _ action: NSTextFinder.Action, _ key: String,
+                          _ modifiers: NSEvent.ModifierFlags = .command) -> NSMenuItem {
+        let i = item(title, #selector(NSTextView.performFindPanelAction(_:)), key, modifiers)
+        i.tag = action.rawValue
+        return i
+    }
+
+    private func submenu(_ title: String, _ items: [NSMenuItem]) -> NSMenuItem {
+        let menu = NSMenu(title: title)
+        items.forEach(menu.addItem)
+        let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+        item.submenu = menu
+        return item
+    }
+}
