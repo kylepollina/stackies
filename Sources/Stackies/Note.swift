@@ -50,6 +50,8 @@ struct Note: Codable, Identifiable {
     var tucked: Bool?
     /// Where the user dragged the tucked tab to (its origin, which also picks the display), if they did.
     var tabOrigin: CGPoint?
+    /// When the note was put in the archive; nil while it's a live note.
+    var archived: Date?
     var created = Date()
     var modified = Date()
 

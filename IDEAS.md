@@ -6,7 +6,8 @@ Ideas for future work. Updated 2026-10-16 after a review pass.
 - **Menu bar timer.** The running pomodoro shows in the menu bar; its menu pauses, stops, or jumps to the task.
 - **Tuck all / untuck all.** ⇧⌘J.
 - **Smart paste.** Pasting a list onto a checklist or bullet line continues that list (no more `- [ ] - [ ]`); `•`, `☐`, `✓` lists from other apps become checkboxes.
-- **Pomodoro sounds** (new). Five recorded singing bowls (CC0, Freesound and BigSoundBank) plus the system sounds, chosen separately for end of focus and end of break in a Settings window (⌘,), along with timer lengths.
+- **Archive** (new). ⌃⌘A files a note away whole (text, color, size); Window ▸ Archive (⌥⌘A) lists archived notes newest first with search and a full-color preview, and can restore or delete them.
+- **Pomodoro sounds**. Five recorded singing bowls (CC0, Freesound and BigSoundBank) plus the system sounds, chosen separately for end of focus and end of break in a Settings window (⌘,), along with timer lengths.
 
 ## Bugs
 - **Autocorrect doesn't work in notes.** Kyle tested the installed build (84ec899) on 2026-10-16: typing "teh " did not become "the", and he reported that it doesn't work overall. What's known:
@@ -17,7 +18,7 @@ Ideas for future work. Updated 2026-10-16 after a review pass.
 
 ## Later
 1. **Today view.** One list gathering every unchecked item across all notes; checking one there checks it in its note.
-2. **Archive finished notes.** When every checkbox in a note is checked, offer "All done ✓ Archive?" instead of deleting.
+2. **Offer to archive finished notes.** When every checkbox in a note is checked, offer "All done ✓ Archive?" (the archive itself now exists).
 3. **Due dates / reminders.** `@3pm` or `@tomorrow` on an item schedules a notification, shown as a small badge like the `⏱` tag.
 4. **Weekly time summary.** Roll up the `⏱` totals into a "Time this week" panel by note.
 5. **Focus mode.** While a pomodoro runs, dim or tuck the other notes.

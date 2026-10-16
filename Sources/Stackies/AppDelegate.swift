@@ -52,7 +52,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.mainMenu = buildMainMenu()
         PomodoroSound.dropUnavailable()
-        let notes = store.notes.sorted { $0.modified < $1.modified }
+        let notes = store.activeNotes.sorted { $0.modified < $1.modified }
         if notes.isEmpty {
             newNote(nil)
         } else {
@@ -250,7 +250,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
     /// The note a new one is based on: the focused note, or else the most recently created one.
     private var previousNote: Note? {
         if let id = keyController?.noteID, let note = store.note(id) { return note }
-        return store.notes.max { $0.created < $1.created }
+        return store.activeNotes.max { $0.created < $1.created }
     }
 
     /// ⇧⌘T: reopens the most recently closed (or deleted) note, like reopening a browser tab.
@@ -258,6 +258,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
         while let note = recentlyClosed.popLast() {
             guard controllers[note.id] == nil else { continue } // already reopened some other way
             if store.note(note.id) == nil { store.add(note) }   // it was deleted: restore it
+            store.update(note.id) { $0.archived = nil }         // or archived: take it back out
+            archive.reload()
             show(note.id)
             return
         }
@@ -265,8 +267,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
     }
 
     @objc func showAllNotes(_ sender: Any?) {
-        if store.notes.isEmpty { newNote(nil); return }
-        store.notes.sorted { $0.modified < $1.modified }.forEach { show($0.id) }
+        let notes = store.activeNotes
+        if notes.isEmpty { newNote(nil); return }
+        notes.sorted { $0.modified < $1.modified }.forEach { show($0.id) }
     }
 
     @objc func openClosedNote(_ sender: NSMenuItem) {
@@ -293,6 +296,50 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
         if let note = store.note(controller.noteID), !note.isEmpty { rememberClosed(note) }
         store.remove(controller.noteID)
         controller.closeForDeletion()
+    }
+
+    /// ⌃⌘A: files the focused note away whole (text, color, size) for looking back at later.
+    @objc func archiveNote(_ sender: Any?) {
+        guard let controller = keyController, store.note(controller.noteID)?.isEmpty == false else { return }
+        controller.stopPomodoro() // record its time before the note leaves
+        store.update(controller.noteID) {
+            $0.archived = Date()
+            $0.tucked = nil
+        }
+        store.saveNow()
+        controller.closeForDeletion() // onClose remembers it, so ⇧⌘T takes it back out
+        archive.reload()
+    }
+
+    private lazy var archive: ArchiveModel = ArchiveModel(
+        load: { [unowned self] in store.archivedNotes },
+        restore: { [unowned self] id in
+            store.update(id) { $0.archived = nil }
+            archive.reload()
+            show(id)
+        },
+        delete: { [unowned self] id in
+            store.remove(id)
+            recentlyClosed.removeAll { $0.id == id }
+            archive.reload()
+        })
+
+    private var archiveWindow: NSWindow?
+
+    @objc func showArchive(_ sender: Any?) {
+        archive.reload()
+        if archiveWindow == nil {
+            let window = NSWindow(contentViewController: NSHostingController(rootView: ArchiveView(model: archive)))
+            window.title = "Archive"
+            window.styleMask = [.titled, .closable, .resizable, .miniaturizable, .fullSizeContentView]
+            window.setContentSize(NSSize(width: 760, height: 520))
+            window.isReleasedWhenClosed = false
+            window.setFrameAutosaveName("Archive")
+            if window.frame.origin == .zero { window.center() }
+            archiveWindow = window
+        }
+        NSApp.activate()
+        archiveWindow?.makeKeyAndOrderFront(nil)
     }
 
     /// ⌘W. Closes the focused note directly: `performClose:` imitates a click on the close
@@ -399,7 +446,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
     func menuNeedsUpdate(_ menu: NSMenu) {
         guard menu === closedNotesMenu else { return }
         menu.removeAllItems()
-        let closed = store.notes.filter { controllers[$0.id] == nil }.sorted { $0.modified > $1.modified }
+        let closed = store.activeNotes.filter { controllers[$0.id] == nil }.sorted { $0.modified > $1.modified }
         if closed.isEmpty {
             let empty = NSMenuItem(title: "No Closed Notes", action: nil, keyEquivalent: "")
             empty.isEnabled = false
@@ -427,6 +474,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
             return keyController != nil
         case #selector(deleteNote(_:)), #selector(randomizeColor(_:)):
             return keyController != nil
+        case #selector(archiveNote(_:)):
+            return keyController.flatMap { store.note($0.noteID) }.map { !$0.isEmpty } ?? false
         case #selector(tuckAway(_:)):
             return keyController != nil
         case #selector(toggleTuckAll(_:)):
@@ -466,6 +515,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
             .separator(),
             item("Close", #selector(closeWindow(_:)), "w"),
             item("Reopen Closed Note", #selector(reopenClosedNote(_:)), "t", [.command, .shift]),
+            item("Archive Note", #selector(archiveNote(_:)), "a", [.command, .control]),
             item("Delete Note…", #selector(deleteNote(_:)), "\u{8}", [.command, .shift]),
         ]))
 
@@ -525,6 +575,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
             .separator(),
             item("Show All Notes", #selector(showAllNotes(_:)), "a", [.command, .shift]),
             closedItem,
+            item("Archive", #selector(showArchive(_:)), "a", [.command, .option]),
             .separator(),
             item("Bring All to Front", #selector(NSApplication.arrangeInFront(_:))),
         ])

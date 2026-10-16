@@ -16,6 +16,14 @@ final class NoteStore {
         load()
     }
 
+    /// Notes that aren't archived: the ones shown on screen, tucked away, or closed.
+    var activeNotes: [Note] { notes.filter { $0.archived == nil } }
+
+    /// Archived notes, most recently archived first.
+    var archivedNotes: [Note] {
+        notes.filter { $0.archived != nil }.sorted { $0.archived! > $1.archived! }
+    }
+
     func note(_ id: UUID) -> Note? {
         notes.first { $0.id == id }
     }
