@@ -6,8 +6,8 @@ A small, modern sticky-notes app for macOS: quick scratchpads for todos and shor
 - Live markdown styling: headings, **bold**, _italic_, ~~strike~~, `code`, links, lists, quotes
 - `- [ ]` checklists with clickable checkboxes
 - Per-note colors and "keep on top" pinning
-- Pomodoro timers on checklist items, shown in the note and the menu bar, with a singing-bowl
-  chime or any system sound (lengths and sounds in Settings, ⌘,)
+- Pomodoro timers on checklist items, shown in the note and the menu bar, with recorded singing-bowl
+  chimes or any system sound (lengths and sounds in Settings, ⌘,)
 - Plays nicely with Stage Manager: all notes share one stage
 
 ## Build
@@ -40,5 +40,10 @@ Notes are stored in `~/Library/Application Support/Stackies/notes.json`.
 
 ## Credits
 
-Singing bowl recording: "Tibetan bowl struck #3" by Joseph Sardin,
-[BigSoundBank](https://bigsoundbank.com/sound-2554-bol-tibetain-frappe-3.html), CC0. Trimmed for use as an alert.
+Pomodoro sounds are CC0 recordings, trimmed for use as alerts:
+
+- Deep Bowl: [Singing Bowl - Soft Stick Meditative Hit](https://freesound.org/people/Rimych/sounds/616335/) by Rimych
+- Low Bowl: [Singing bowl, low and quiet](https://freesound.org/people/eliasheuninck/sounds/170672/) by eliasheuninck
+- Soft Bowl: [singing bowl - single strike 6](https://freesound.org/people/s-light/sounds/415141/) by s-light
+- Brass Bowl: [ChaliceChime](https://freesound.org/people/ChaliceAV/sounds/509926/) by ChaliceAV
+- Singing Bowl: [Tibetan bowl struck #3](https://bigsoundbank.com/sound-2554-bol-tibetain-frappe-3.html) by Joseph Sardin (BigSoundBank)

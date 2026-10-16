@@ -8,14 +8,21 @@ enum PomodoroSound {
         case focusDone, breakDone
 
         var key: String { rawValue + "Sound" }
-        /// A soft bowl to ease into the break, a brighter chime to call you back.
-        var defaultSound: String { self == .focusDone ? "Singing Bowl" : "Glass" }
+        /// A deep bowl to ease into the break, a brighter chime to call you back.
+        var defaultSound: String { self == .focusDone ? "Deep Bowl" : "Glass" }
     }
 
     static let none = "None"
-    /// Display names of the recordings in `Resources/Sounds`, by file name.
-    private static let recordingFiles = ["Singing Bowl": "singing-bowl"]
-    static let recordings = recordingFiles.keys.sorted()
+    /// The recordings in `Resources/Sounds` (all CC0; see the README's credits), as
+    /// display name and file name, in menu order.
+    private static let recordingFiles: KeyValuePairs = [
+        "Deep Bowl": "deep-bowl",
+        "Low Bowl": "low-bowl",
+        "Soft Bowl": "soft-bowl",
+        "Brass Bowl": "brass-bowl",
+        "Singing Bowl": "singing-bowl",
+    ]
+    static let recordings = recordingFiles.map(\.key)
     static let system = ["Glass", "Hero", "Ping", "Submarine", "Tink", "Purr", "Funk", "Blow", "Bottle",
                          "Frog", "Morse", "Pop", "Sosumi", "Basso"]
 
@@ -36,7 +43,7 @@ enum PomodoroSound {
 
     static func play(_ name: String) {
         playing?.stop()
-        if let file = recordingFiles[name] {
+        if let file = recordingFiles.first(where: { $0.key == name })?.value {
             playing = Bundle.main.url(forResource: file, withExtension: "m4a")
                 .flatMap { NSSound(contentsOf: $0, byReference: true) }
         } else {
