@@ -27,6 +27,7 @@ vtool -set-build-version macos 14.0 "$(xcrun --show-sdk-version)" -replace \
     -output "$APP/Contents/MacOS/Stackies" "$APP/Contents/MacOS/Stackies"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
 cp build/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
+cp Resources/Sounds/* "$APP/Contents/Resources/"
 codesign --force --sign - "$APP" >/dev/null
 
 echo "Built $APP"

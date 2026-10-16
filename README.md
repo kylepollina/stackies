@@ -6,8 +6,8 @@ A small, modern sticky-notes app for macOS: quick scratchpads for todos and shor
 - Live markdown styling: headings, **bold**, _italic_, ~~strike~~, `code`, links, lists, quotes
 - `- [ ]` checklists with clickable checkboxes
 - Per-note colors and "keep on top" pinning
-- Pomodoro timers on checklist items, shown in the note and the menu bar, with bell, gong, or
-  singing-bowl chimes (lengths and sounds in Settings, ⌘,)
+- Pomodoro timers on checklist items, shown in the note and the menu bar, with a singing-bowl
+  chime or any system sound (lengths and sounds in Settings, ⌘,)
 - Plays nicely with Stage Manager: all notes share one stage
 
 ## Build
@@ -37,3 +37,8 @@ Notes are stored in `~/Library/Application Support/Stackies/notes.json`.
 | Note color | ⌘1–⌘7 (⌘0 for random) |
 | Delete note | ⇧⌘⌫ |
 | Reopen last closed or deleted note | ⇧⌘T |
+
+## Credits
+
+Singing bowl recording: "Tibetan bowl struck #3" by Joseph Sardin,
+[BigSoundBank](https://bigsoundbank.com/sound-2554-bol-tibetain-frappe-3.html), CC0. Trimmed for use as an alert.

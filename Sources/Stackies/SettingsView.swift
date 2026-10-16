@@ -50,7 +50,7 @@ struct SettingsView: View {
         LabeledContent(title) {
             HStack(spacing: 6) {
                 Picker(title, selection: selection) {
-                    ForEach(PomodoroSound.chimes, id: \.self) { Text($0) }
+                    ForEach(PomodoroSound.recordings, id: \.self) { Text($0) }
                     Divider()
                     ForEach(PomodoroSound.system, id: \.self) { Text($0) }
                     Divider()

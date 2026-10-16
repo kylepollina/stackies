@@ -51,6 +51,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.mainMenu = buildMainMenu()
+        PomodoroSound.dropUnavailable()
         let notes = store.notes.sorted { $0.modified < $1.modified }
         if notes.isEmpty {
             newNote(nil)
