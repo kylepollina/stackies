@@ -38,6 +38,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
         recentlyClosed.append(note)
     }
 
+    private lazy var menuBarTimer = MenuBarTimer { [unowned self] in
+        controllers.values.filter(\.hasPomodoro).sorted { ($0.window?.frame.maxY ?? 0) > ($1.window?.frame.maxY ?? 0) }
+    }
+
     private var keyController: NoteWindowController? {
         NSApp.keyWindow?.windowController as? NoteWindowController
     }
@@ -113,6 +117,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
             if let window = c.window { self?.attachToAnchor(window) }
         }
         controller.onTuckChange = controller.onPinChange
+        controller.onPomodoroChange = { [weak self] _ in self?.menuBarTimer.update() }
         controller.otherTabFrames = { [weak self, weak controller] in
             self?.controllers.values.filter { $0 !== controller }.compactMap(\.tabFrame) ?? []
         }
@@ -314,6 +319,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
         keyController?.tuck()
     }
 
+    /// Tucks every note away, or brings them all back if they're all tucked already.
+    @objc func toggleTuckAll(_ sender: Any?) {
+        // Top to bottom, so the tabs stack along the edge in the same order as the notes.
+        let all = controllers.values.sorted { ($0.window?.frame.maxY ?? 0) > ($1.window?.frame.maxY ?? 0) }
+        let open = all.filter { !$0.isTucked }
+        if open.isEmpty { all.forEach { $0.untuck() } } else { open.forEach { $0.tuck() } }
+    }
+
+    @objc func setPomodoroSound(_ sender: NSMenuItem) {
+        guard let name = sender.representedObject as? String,
+              let event = PomodoroSound.Event(rawValue: sender.identifier?.rawValue ?? "") else { return }
+        PomodoroSound.set(name, for: event)
+        if name != PomodoroSound.none { PomodoroSound.play(name) } // a preview
+    }
+
     @objc func togglePin(_ sender: Any?) {
         keyController?.togglePin()
     }
@@ -399,6 +419,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
             return keyController != nil
         case #selector(tuckAway(_:)):
             return keyController != nil
+        case #selector(toggleTuckAll(_:)):
+            let allTucked = controllers.values.allSatisfy(\.isTucked)
+            item.title = allTucked && !controllers.isEmpty ? "Untuck All" : "Tuck All Away"
+            return !controllers.isEmpty
+        case #selector(setPomodoroSound(_:)):
+            if let event = PomodoroSound.Event(rawValue: item.identifier?.rawValue ?? "") {
+                item.state = PomodoroSound.name(for: event) == item.representedObject as? String ? .on : .off
+            }
+            return true
         case #selector(startPomodoro(_:)):
             return keyController != nil
         case #selector(stopPomodoro(_:)):
@@ -471,6 +500,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
         main.addItem(submenu("Note", [
             item("Keep on Top", #selector(togglePin(_:)), "p"),
             item("Tuck Away", #selector(tuckAway(_:)), "j"),
+            item("Tuck All Away", #selector(toggleTuckAll(_:)), "j", [.command, .shift]),
             submenu("Color", colorItems + [
                 .separator(),
                 item("Random Color", #selector(randomizeColor(_:)), "0"),
@@ -478,6 +508,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
             .separator(),
             item("Start Pomodoro", #selector(startPomodoro(_:)), "t"),
             item("Stop Pomodoro", #selector(stopPomodoro(_:))),
+            submenu("Pomodoro Sounds", [
+                soundMenu("End of Focus", .focusDone),
+                soundMenu("End of Break", .breakDone),
+            ]),
         ]))
 
         closedNotesMenu.delegate = self
@@ -502,6 +536,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
         let item = NSMenuItem(title: title, action: action, keyEquivalent: key)
         item.keyEquivalentModifierMask = modifiers
         return item
+    }
+
+    /// A submenu of every sound for one pomodoro event; choosing one plays it.
+    private func soundMenu(_ title: String, _ event: PomodoroSound.Event) -> NSMenuItem {
+        func sounds(_ names: [String]) -> [NSMenuItem] {
+            names.map { name in
+                let i = item(name, #selector(setPomodoroSound(_:)))
+                i.representedObject = name
+                i.identifier = NSUserInterfaceItemIdentifier(event.rawValue)
+                return i
+            }
+        }
+        return submenu(title, sounds(PomodoroSound.chimes) + [.separator()] + sounds(PomodoroSound.system)
+            + [.separator()] + sounds([PomodoroSound.none]))
     }
 
     private func findItem(_ title: String, _ action: NSTextFinder.Action, _ key: String,

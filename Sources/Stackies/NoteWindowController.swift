@@ -13,6 +13,8 @@ final class NoteWindowController: NSWindowController, NSWindowDelegate, NSTextVi
     /// Frames of other notes' tabs, so a new tab can avoid them.
     var otherTabFrames: (() -> [NSRect])?
     var onScreenChange: ((NoteWindowController) -> Void)?
+    /// Called whenever the pomodoro starts, ticks, pauses, or ends.
+    var onPomodoroChange: ((NoteWindowController) -> Void)?
 
     private let store: NoteStore
     private let textStorage = MarkdownTextStorage()
@@ -28,7 +30,7 @@ final class NoteWindowController: NSWindowController, NSWindowDelegate, NSTextVi
     private var isBeingDeleted = false
     private var timerButton: NSButton!
     private var ticker: Timer?
-    private var pomodoro: Pomodoro? { didSet { pomodoroChanged() } }
+    private(set) var pomodoro: Pomodoro? { didSet { pomodoroChanged() } }
 
     private var note: Note? { store.note(noteID) }
     var color: NoteColor { note?.color ?? .yellow }
@@ -277,6 +279,19 @@ final class NoteWindowController: NSWindowController, NSWindowDelegate, NSTextVi
         textView.focusMinutes(forItemAt: p.marker) + Int((p.elapsed / 60).rounded(.down))
     }
 
+    /// The text of the item the pomodoro is on, without its checkbox or tags.
+    var pomodoroTask: String? { pomodoro.map { itemTitle(at: $0.marker) } }
+
+    /// Brings the note forward (untucking it if needed) with the caret on the timed item.
+    func revealPomodoroItem() {
+        focus()
+        guard let p = pomodoro else { return }
+        let ns = textView.string as NSString
+        let end = NSRange(location: NSMaxRange(Markdown.line(in: ns, at: p.marker)), length: 0)
+        textView.setSelectedRange(end)
+        textView.scrollRangeToVisible(end)
+    }
+
     private func itemTitle(at marker: Int) -> String {
         let ns = textView.string as NSString
         return ns.substring(with: Markdown.line(in: ns, at: marker))
@@ -284,7 +299,7 @@ final class NoteWindowController: NSWindowController, NSWindowDelegate, NSTextVi
             .replacingOccurrences(of: #"\s*(⏱\S+|🍅)"#, with: "", options: .regularExpression)
     }
 
-    @objc private func togglePomodoroPause() {
+    @objc func togglePomodoroPause() {
         pomodoro?.togglePause()
     }
 
@@ -308,7 +323,8 @@ final class NoteWindowController: NSWindowController, NSWindowDelegate, NSTextVi
         if p.phase == .focus, !p.warned, totalFocusMinutes(p) >= FocusTime.warnMinutes {
             pomodoro?.warned = true
             PomodoroAlert.post(title: "\(FocusTime.format(totalFocusMinutes(p))) on this task",
-                               body: "\(itemTitle(at: p.marker))\nMaybe time to switch to something else?")
+                               body: "\(itemTitle(at: p.marker))\nMaybe time to switch to something else?",
+                               sound: "Glass")
         }
         refreshPomodoro()
     }
@@ -346,6 +362,7 @@ final class NoteWindowController: NSWindowController, NSWindowDelegate, NSTextVi
             return Markdown.itemBlock(in: ns, line: Markdown.line(in: ns, at: $0.marker))
         }
         textView.needsDisplay = true
+        onPomodoroChange?(self)
     }
 
     private func finishPomodoro() {
@@ -356,9 +373,11 @@ final class NoteWindowController: NSWindowController, NSWindowDelegate, NSTextVi
             pomodoro = Pomodoro(phase: .rest, marker: p.marker)
             recordFocusTime(p)
             textView.addTomato(toItemAt: p.marker)
-            PomodoroAlert.post(title: "Pomodoro done 🍅", body: "\(item)\nTake a \(Int(Pomodoro.restLength / 60)) minute break.")
+            PomodoroAlert.post(title: "Pomodoro done 🍅", body: "\(item)\nTake a \(Int(Pomodoro.restLength / 60)) minute break.",
+                               sound: PomodoroSound.name(for: .focusDone))
         case .rest:
-            PomodoroAlert.post(title: "Break's over", body: "Ready for the next one?")
+            PomodoroAlert.post(title: "Break's over", body: "Ready for the next one?",
+                               sound: PomodoroSound.name(for: .breakDone))
             pomodoro = nil
         }
     }
@@ -506,12 +525,21 @@ final class NoteWindowController: NSWindowController, NSWindowDelegate, NSTextVi
         let preferredY = dragged == nil ? nil : preferred?.y
         let x = side == .right ? screen.maxX - TuckTab.width : screen.minX
         let y = min(max(preferredY ?? frame.midY - height / 2, screen.minY + 4), screen.maxY - height - 4)
-        var rect = NSRect(x: x, y: y, width: TuckTab.width, height: height)
+        let rect = NSRect(x: x, y: y, width: TuckTab.width, height: height)
         let others = (otherTabFrames?() ?? []).filter { abs($0.minX - x) < TuckTab.width }
-        for _ in 0..<others.count + 1 {
-            guard let hit = others.first(where: { $0.insetBy(dx: 0, dy: -6).intersects(rect) }) else { break }
-            rect.origin.y = hit.minY - 8 - height
-            if rect.minY < screen.minY + 8 { rect.origin.y = screen.maxY - height - 8 }
+        func isFree(_ r: NSRect) -> Bool {
+            r.minY >= screen.minY + 4 && r.maxY <= screen.maxY - 4
+                && !others.contains { $0.insetBy(dx: 0, dy: -6).intersects(r) }
+        }
+        if isFree(rect) { return rect }
+        // Otherwise the nearest gap: any free spot is just above or below another tab, or against
+        // the top or bottom of the screen. With no room left, try again as a short tab; with the
+        // edge completely full, it overlaps where it wanted to be.
+        for h in [height, min(height, 72)] {
+            let spots = (others.flatMap { [$0.minY - 8 - h, $0.maxY + 8] } + [screen.maxY - 4 - h, screen.minY + 4])
+                .map { NSRect(x: x, y: $0, width: TuckTab.width, height: h) }
+                .filter(isFree)
+            if let nearest = spots.min(by: { abs($0.midY - rect.midY) < abs($1.midY - rect.midY) }) { return nearest }
         }
         return rect
     }

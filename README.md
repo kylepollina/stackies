@@ -6,6 +6,8 @@ A small, modern sticky-notes app for macOS: quick scratchpads for todos and shor
 - Live markdown styling: headings, **bold**, _italic_, ~~strike~~, `code`, links, lists, quotes
 - `- [ ]` checklists with clickable checkboxes
 - Per-note colors and "keep on top" pinning
+- Pomodoro timers on checklist items, shown in the note and the menu bar, with bell, gong, or
+  singing-bowl chimes (Note ▸ Pomodoro Sounds)
 - Plays nicely with Stage Manager: all notes share one stage
 
 ## Build
@@ -30,6 +32,8 @@ Notes are stored in `~/Library/Application Support/Stackies/notes.json`.
 | Move item (with subtasks) up / down | ⌘↑ / ⌘↓ |
 | Keep on top | ⌘P |
 | Tuck away to the screen edge (click the tab to bring it back) | ⌘J |
+| Tuck all notes away / bring them all back | ⇧⌘J |
+| Start or pause a pomodoro on the item at the caret | ⌘T |
 | Note color | ⌘1–⌘7 (⌘0 for random) |
 | Delete note | ⇧⌘⌫ |
 | Reopen last closed or deleted note | ⇧⌘T |

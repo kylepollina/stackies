@@ -447,6 +447,88 @@ final class NoteTextView: NSTextView {
         replace(block, with: newText, select: newSelection)
     }
 
+    // MARK: - Smart paste
+
+    override func paste(_ sender: Any?) {
+        guard let text = NSPasteboard.general.string(forType: .string), let converted = smartPaste(text) else {
+            super.paste(sender)
+            return
+        }
+        let sel = selectedRange()
+        replace(sel, with: converted, select: NSRange(location: sel.location + (converted as NSString).length, length: 0))
+    }
+
+    /// One pasted line, with whatever list marker it had (markdown, `•`, `1.`, `☐`, `✓`...) taken off.
+    private struct PastedLine {
+        static let pattern = try! NSRegularExpression(pattern:
+            #"^([ \t]*)(?:([-*+]|[•◦▪▫‣⁃·–]|\d{1,9}[.)])[ \t]+)?(?:\[([ xX])\][ \t]*|([☐☑☒✓✔✅□])[ \t]*)?"#)
+        static let foreign = CharacterSet(charactersIn: "•◦▪▫‣⁃·–☐☑☒✓✔✅□")
+
+        var text: String
+        var indent: Int
+        var content: String
+        var isMarked: Bool
+        var isChecked: Bool
+        /// Marked with a bullet or box that isn't markdown, as copied from Notes, Reminders, a web page...
+        var isForeign: Bool
+
+        init(_ line: String) {
+            text = line
+            let ns = line as NSString
+            let m = Self.pattern.firstMatch(in: line, range: NSRange(location: 0, length: ns.length))!
+            func group(_ i: Int) -> String? { m.range(at: i).location == NSNotFound ? nil : ns.substring(with: m.range(at: i)) }
+            indent = Markdown.indentWidth(in: ns, line: NSRange(location: 0, length: ns.length))
+            content = ns.substring(from: m.range.upperBound)
+            isMarked = m.range.length > m.range(at: 1).length
+            isChecked = group(3).map { $0 != " " } ?? group(4).map { "☑☒✓✔✅".contains($0) } ?? false
+            isForeign = (group(2) ?? "").unicodeScalars.contains(where: Self.foreign.contains) || group(4) != nil
+        }
+    }
+
+    /// How pasted text should go in, or nil to paste it as is.
+    ///
+    /// On a checklist or bullet line, pasted lines continue that list: each loses its own marker
+    /// (so the first doesn't double up with the line's, as in `- [ ] - [ ] Milk`) and the rest
+    /// get this line's marker, indented to match. Elsewhere, only non-markdown bullets are
+    /// converted, to checkboxes.
+    private func smartPaste(_ text: String) -> String? {
+        let all = text.replacingOccurrences(of: "\r\n", with: "\n").components(separatedBy: "\n").map(PastedLine.init)
+        let lines = all.filter { !$0.content.trimmingCharacters(in: .whitespaces).isEmpty || $0.isMarked }
+        guard lines.contains(where: \.isMarked) else { return nil }
+
+        // Indent levels relative to the first line, in steps of the smallest indent used.
+        let widths = Set(lines.map(\.indent)).sorted()
+        let step = zip(widths, widths.dropFirst()).map { $1 - $0 }.min() ?? 4
+        let level = { (l: PastedLine) in max(0, Int((Double(l.indent - lines[0].indent) / Double(step)).rounded())) }
+
+        let sel = selectedRange()
+        let line = Markdown.line(in: ns, at: sel.location)
+        if let p = Markdown.listPrefix(in: ns, line: line), sel.location >= p.end {
+            let indent = ns.substring(with: p.indent)
+            let marker: (PastedLine) -> String
+            switch p.kind {
+            case .checkbox:
+                let c = ns.substring(with: NSRange(location: p.marker.location, length: 1))
+                marker = { "\(c) [\($0.isChecked ? "x" : " ")] " }
+            case .bullet(let c):
+                marker = { _ in "\(c) " }
+            case .ordered, .quote:
+                return nil
+            }
+            return lines.enumerated().map { i, l in
+                i == 0 ? l.content : "\n" + indent + String(repeating: "\t", count: level(l)) + marker(l) + l.content
+            }.joined()
+        }
+
+        guard lines.contains(where: \.isForeign) else { return nil }
+        let base = lines.map(\.indent).min() ?? 0
+        return all.map { l in
+            guard l.isMarked else { return l.text }
+            let depth = max(0, Int((Double(l.indent - base) / Double(step)).rounded()))
+            return String(repeating: "\t", count: depth) + "- [\(l.isChecked ? "x" : " ")] " + l.content
+        }.joined(separator: "\n")
+    }
+
     // MARK: - Editing primitive
 
     /// Undoable replacement that notifies the delegate (which triggers autosave).

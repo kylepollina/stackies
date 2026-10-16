@@ -82,6 +82,7 @@ enum FocusTime {
 }
 
 /// Sound plus a system notification when a focus session or break ends.
+@MainActor
 enum PomodoroAlert {
     // UNUserNotificationCenter traps outside an app bundle (e.g. a bare `swift run` binary).
     private static var center: UNUserNotificationCenter? {
@@ -92,8 +93,8 @@ enum PomodoroAlert {
         center?.requestAuthorization(options: [.alert, .sound]) { _, _ in }
     }
 
-    static func post(title: String, body: String) {
-        NSSound(named: "Glass")?.play()
+    static func post(title: String, body: String, sound: String) {
+        PomodoroSound.play(sound)
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body
