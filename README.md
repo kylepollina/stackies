@@ -7,7 +7,7 @@ A small, modern sticky-notes app for macOS: quick scratchpads for todos and shor
 - `- [ ]` checklists with clickable checkboxes
 - Per-note colors and "keep on top" pinning
 - Pomodoro timers on checklist items, shown in the note and the menu bar, with bell, gong, or
-  singing-bowl chimes (Note ▸ Pomodoro Sounds)
+  singing-bowl chimes (lengths and sounds in Settings, ⌘,)
 - Plays nicely with Stage Manager: all notes share one stage
 
 ## Build

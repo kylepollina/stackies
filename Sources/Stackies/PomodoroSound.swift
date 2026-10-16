@@ -1,8 +1,7 @@
 import AppKit
 
 /// The sounds played when a focus session or break ends: a few synthesized chimes plus the
-/// built-in macOS alert sounds. Chosen in Note ▸ Pomodoro Sounds and stored by name, e.g.
-/// `defaults write local.stackies.app focusDoneSound Hero`.
+/// built-in macOS alert sounds. Chosen in Settings and stored by name under `Event.key`.
 @MainActor
 enum PomodoroSound {
     enum Event: String {
@@ -20,10 +19,6 @@ enum PomodoroSound {
 
     static func name(for event: Event) -> String {
         UserDefaults.standard.string(forKey: event.key) ?? event.defaultSound
-    }
-
-    static func set(_ name: String, for event: Event) {
-        UserDefaults.standard.set(name, forKey: event.key)
     }
 
     /// The sound playing now, kept so it isn't freed mid-play and so a new one replaces it.

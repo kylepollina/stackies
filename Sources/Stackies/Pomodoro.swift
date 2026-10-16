@@ -5,7 +5,7 @@ import UserNotifications
 struct Pomodoro {
     enum Phase { case focus, rest }
 
-    /// Lengths in minutes, overridable with e.g. `defaults write local.stackies.app focusMinutes 50`.
+    /// Lengths in minutes, set in Settings (stored as `focusMinutes` and `breakMinutes`).
     static var focusLength: TimeInterval { minutes("focusMinutes", default: 25) }
     static var restLength: TimeInterval { minutes("breakMinutes", default: 5) }
 
@@ -55,7 +55,7 @@ struct Pomodoro {
 enum FocusTime {
     static let pattern = try! NSRegularExpression(pattern: #"⏱(?=\d)(?:(\d+)h)?(?:(\d+)m)?"#)
 
-    /// Totals at or above this many minutes are flagged; `defaults write local.stackies.app warnHours 3`.
+    /// Totals at or above this many minutes are flagged; set in Settings (stored as `warnHours`).
     static var warnMinutes: Int {
         let hours = UserDefaults.standard.double(forKey: "warnHours")
         return Int((hours > 0 ? hours : 2) * 60)

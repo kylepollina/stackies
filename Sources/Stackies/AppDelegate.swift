@@ -1,4 +1,5 @@
 import AppKit
+import SwiftUI
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenuItemValidation {
@@ -327,11 +328,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
         if open.isEmpty { all.forEach { $0.untuck() } } else { open.forEach { $0.tuck() } }
     }
 
-    @objc func setPomodoroSound(_ sender: NSMenuItem) {
-        guard let name = sender.representedObject as? String,
-              let event = PomodoroSound.Event(rawValue: sender.identifier?.rawValue ?? "") else { return }
-        PomodoroSound.set(name, for: event)
-        if name != PomodoroSound.none { PomodoroSound.play(name) } // a preview
+    private var settingsWindow: NSWindow?
+
+    @objc func showSettings(_ sender: Any?) {
+        if settingsWindow == nil {
+            let window = NSWindow(contentViewController: NSHostingController(rootView: SettingsView()))
+            window.title = "Settings"
+            window.styleMask = [.titled, .closable]
+            window.isReleasedWhenClosed = false
+            window.center()
+            settingsWindow = window
+        }
+        NSApp.activate()
+        settingsWindow?.makeKeyAndOrderFront(nil)
     }
 
     @objc func togglePin(_ sender: Any?) {
@@ -423,11 +432,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
             let allTucked = controllers.values.allSatisfy(\.isTucked)
             item.title = allTucked && !controllers.isEmpty ? "Untuck All" : "Tuck All Away"
             return !controllers.isEmpty
-        case #selector(setPomodoroSound(_:)):
-            if let event = PomodoroSound.Event(rawValue: item.identifier?.rawValue ?? "") {
-                item.state = PomodoroSound.name(for: event) == item.representedObject as? String ? .on : .off
-            }
-            return true
         case #selector(startPomodoro(_:)):
             return keyController != nil
         case #selector(stopPomodoro(_:)):
@@ -446,6 +450,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
 
         main.addItem(submenu("Stackies", [
             item("About Stackies", #selector(NSApplication.orderFrontStandardAboutPanel(_:))),
+            .separator(),
+            item("Settings…", #selector(showSettings(_:)), ","),
             .separator(),
             item("Hide Stackies", #selector(NSApplication.hide(_:)), "h"),
             item("Hide Others", #selector(NSApplication.hideOtherApplications(_:)), "h", [.command, .option]),
@@ -508,10 +514,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
             .separator(),
             item("Start Pomodoro", #selector(startPomodoro(_:)), "t"),
             item("Stop Pomodoro", #selector(stopPomodoro(_:))),
-            submenu("Pomodoro Sounds", [
-                soundMenu("End of Focus", .focusDone),
-                soundMenu("End of Break", .breakDone),
-            ]),
         ]))
 
         closedNotesMenu.delegate = self
@@ -536,20 +538,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
         let item = NSMenuItem(title: title, action: action, keyEquivalent: key)
         item.keyEquivalentModifierMask = modifiers
         return item
-    }
-
-    /// A submenu of every sound for one pomodoro event; choosing one plays it.
-    private func soundMenu(_ title: String, _ event: PomodoroSound.Event) -> NSMenuItem {
-        func sounds(_ names: [String]) -> [NSMenuItem] {
-            names.map { name in
-                let i = item(name, #selector(setPomodoroSound(_:)))
-                i.representedObject = name
-                i.identifier = NSUserInterfaceItemIdentifier(event.rawValue)
-                return i
-            }
-        }
-        return submenu(title, sounds(PomodoroSound.chimes) + [.separator()] + sounds(PomodoroSound.system)
-            + [.separator()] + sounds([PomodoroSound.none]))
     }
 
     private func findItem(_ title: String, _ action: NSTextFinder.Action, _ key: String,

@@ -6,7 +6,7 @@ Ideas for future work. Updated 2026-10-16 after a review pass.
 - **Menu bar timer.** The running pomodoro shows in the menu bar; its menu pauses, stops, or jumps to the task.
 - **Tuck all / untuck all.** ⇧⌘J.
 - **Smart paste.** Pasting a list onto a checklist or bullet line continues that list (no more `- [ ] - [ ]`); `•`, `☐`, `✓` lists from other apps become checkboxes.
-- **Pomodoro sounds** (new). Synthesized bell, gong, and singing bowl plus the system sounds, chosen separately for end of focus and end of break.
+- **Pomodoro sounds** (new). Synthesized bell, gong, and singing bowl plus the system sounds, chosen separately for end of focus and end of break in a Settings window (⌘,), along with timer lengths.
 
 ## Later
 1. **Today view.** One list gathering every unchecked item across all notes; checking one there checks it in its note.
