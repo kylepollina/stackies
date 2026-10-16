@@ -8,6 +8,13 @@ Ideas for future work. Updated 2026-10-16 after a review pass.
 - **Smart paste.** Pasting a list onto a checklist or bullet line continues that list (no more `- [ ] - [ ]`); `•`, `☐`, `✓` lists from other apps become checkboxes.
 - **Pomodoro sounds** (new). Five recorded singing bowls (CC0, Freesound and BigSoundBank) plus the system sounds, chosen separately for end of focus and end of break in a Settings window (⌘,), along with timer lengths.
 
+## Bugs
+- **Autocorrect doesn't work in notes.** Kyle tested the installed build (84ec899) on 2026-10-16: typing "teh " did not become "the", and he reported that it doesn't work overall. What's known:
+  - `NoteWindowController.configureTextView` leaves `isAutomaticSpellingCorrectionEnabled` on (it follows the system setting, which is on), and the text view's `enabledTextCheckingTypes` includes correction. 84ec899 also turned on `isContinuousSpellCheckingEnabled`.
+  - `NSSpellChecker` does return "the" for "teh".
+  - It has never been tested with Stackies as the frontmost app. Test runs stayed in the background to avoid taking keyboard focus, and in that setup even a plain `NSTextView` didn't autocorrect, so those runs showed nothing either way.
+  - The 84ec899 change doesn't fix it in real use. Start by reproducing with Stackies frontmost, and compare against a plain `NSTextView` in the same app.
+
 ## Later
 1. **Today view.** One list gathering every unchecked item across all notes; checking one there checks it in its note.
 2. **Archive finished notes.** When every checkbox in a note is checked, offer "All done ✓ Archive?" instead of deleting.
