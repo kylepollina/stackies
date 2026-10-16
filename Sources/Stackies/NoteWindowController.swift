@@ -107,6 +107,9 @@ final class NoteWindowController: NSWindowController, NSWindowDelegate, NSTextVi
         textView.allowsUndo = true
         textView.usesFindBar = true
         textView.isIncrementalSearchingEnabled = true
+        // Red underlines for misspellings; autocorrect (on by default, per the system setting)
+        // works alongside them.
+        textView.isContinuousSpellCheckingEnabled = true
         textView.isAutomaticQuoteSubstitutionEnabled = false
         textView.isAutomaticDashSubstitutionEnabled = false
         textView.isAutomaticTextReplacementEnabled = false
