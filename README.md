@@ -13,10 +13,6 @@
   Native Swift/AppKit · Markdown-styled as you type · Checklists with pomodoro timers · No accounts, no cloud
 </p>
 
-<!-- TODO(Kyle): screenshots. Add docs/images/hero.png (a few colorful notes on the desktop),
-     then replace this comment with:  ![Stackies](docs/images/hero.png)
-     See "Screenshots" below for the full shot list. -->
-
 Stackies keeps a handful of colorful notes floating on your desktop. Type, and everything is
 saved: text, position, size and color. Write `- [ ]` and you have a checklist; press ⌘T on an item and
 you have a focus timer. When a note is done, tuck it to the screen edge or file it in the archive.
@@ -43,38 +39,14 @@ you have a focus timer. When a note is done, tuck it to the screen edge or file 
   [Known issues](#known-issues).)
 - **Local and private.** Everything lives in one JSON file on your Mac.
 
-## Screenshots
-
-<!-- TODO(Kyle): screenshots could not be captured automatically (the tool that wrote this README had
-     no Screen Recording permission). Suggested shots, saved into docs/images/ at 2x:
-       hero.png       a few notes in different colors on the desktop
-       checklist.png  a checklist with a running pomodoro and a ⏱ tag
-       menubar.png    the menu bar timer with its menu open
-       archive.png    the archive window (⌥⌘A) with a note previewed
-       tucked.png     a tucked tab at the screen edge
-       settings.png   the Settings window (⌘,)
-     Then uncomment the table below. Use sample content only. -->
-
-_Screenshots coming soon._
-
-<!--
-| | |
-|---|---|
-| ![Notes in several colors](docs/images/hero.png) | ![Checklist with a pomodoro](docs/images/checklist.png) |
-| ![Menu bar timer](docs/images/menubar.png) | ![The archive](docs/images/archive.png) |
-| ![A tucked note](docs/images/tucked.png) | ![Settings](docs/images/settings.png) |
--->
-
 ## Install
-
-### Build from source
 
 **Requirements:** macOS 14 (Sonoma) or later, and Xcode or the Swift toolchain (the package uses
 `swift-tools-version:5.10`). The app is built with the current macOS SDK so it gets the modern system
 look (Liquid Glass) on macOS 26 and later.
 
 ```sh
-git clone <repository-url> stackies   # TODO(Kyle): fill in the repository URL
+git clone https://github.com/kylepollina/stackies.git
 cd stackies
 ./scripts/build.sh --install
 ```
@@ -89,11 +61,6 @@ open build/Stackies.app
 
 The app is ad-hoc signed (no Apple Developer account needed). If you copy it to another Mac,
 macOS Gatekeeper may ask you to right-click ▸ Open the first time.
-
-### Download a prebuilt app
-
-> **Placeholder.** No release has been published yet. TODO(Kyle): add a link to the latest
-> [release](../../releases) here once a signed or notarized build exists.
 
 ## Using Stackies
 
