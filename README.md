@@ -5,173 +5,65 @@
   </picture>
 </p>
 
-<p align="center">
-  <strong>Small, modern sticky notes for macOS: quick scratchpads for todos and short-lived reminders.</strong>
-</p>
+<p align="center"><img src="docs/images/shot-notes.jpg" alt="Five Stackies notes in different colors on a Mac desktop" width="820"></p>
 
-<p align="center">
-  Native Swift/AppKit · Markdown-styled as you type · Checklists with pomodoro timers · No accounts, no cloud
-</p>
+<h3 align="center">Small sticky notes for macOS</h3>
 
-Stackies keeps a handful of colorful notes floating on your desktop. Type, and everything is
-saved: text, position, size and color. Write `- [ ]` and you have a checklist; press ⌘T on an item and
-you have a focus timer. When a note is done, tuck it to the screen edge or file it in the archive.
+<p align="center">For macOS 14 and later · Native Swift and AppKit · No accounts, no cloud</p>
+
+Stackies keeps a handful of colorful notes floating on your desktop. Type, and your text, position, size and
+color are saved. Write `- [ ]` and you have a checklist. Press ⌘T on an item and you have a focus timer. When a
+note is done, tuck it to the screen edge or file it in the archive.
 
 ## Features
 
-- **Autosave.** No save button. Notes reopen exactly as you left them.
-- **Live markdown styling.** Headings, **bold**, _italic_, ~~strikethrough~~, `inline code`, links,
-  bullet and numbered lists, and quotes are styled as you type.
-- **Checklists.** `- [ ]` items get clickable checkboxes. Nest subtasks, reorder items with their
-  subtasks (⌘↑ / ⌘↓), and paste lists from other apps (`•`, `☐`, `✓` lists become checkboxes).
-- **Seven note colors**, with light and dark variants. Pin a note to **keep it on top**.
-- **Pomodoro timers on checklist items.** Start one at the caret (⌘T); the countdown shows in the note
-  and in the menu bar, where you can pause, stop, or jump to the task. Total focus time is tracked per
-  item as a `⏱1h40m` tag, and turns orange (with a one-time alert) once it passes a limit you set.
-  Recorded singing-bowl chimes or any system sound mark the end of a focus session or break.
-- **Tuck away.** Slide a note to the screen edge as a small tab (⌘J); click the tab to bring it back.
-  Tabs can be dragged along the edge and between displays. Tuck every note at once with ⇧⌘J.
-- **Archive.** File away finished notes (⌃⌘A) and browse them later (⌥⌘A): newest first, searchable,
-  previewed in their original color, restorable or deletable.
-- **Reopen closed notes.** Closed or deleted notes can be brought back with ⇧⌘T (until you quit).
-- **Stage Manager friendly.** All of your notes share one stage; pinned notes stay visible across stages.
-- **Spell checking.** Misspelled words get red underlines. (Autocorrect is not working yet; see
-  [Known issues](#known-issues).)
-- **Local and private.** Everything lives in one JSON file on your Mac.
+**Markdown as you type.** Headings, bold, italic, links, lists and quotes are styled live, and `- [ ]` items get
+clickable checkboxes.
+
+**Focus timers.** Start a pomodoro on any checklist item. The countdown shows in the note and the menu bar, and
+each item keeps a total of the time you've spent on it.
+
+<img src="docs/images/shot-timer.png" alt="A note with a running focus timer" width="400">
+
+**Tuck, archive, reopen.** Slide a note to the screen edge as a small tab (⌘J), file finished notes in a searchable
+archive (⌃⌘A), or bring back a closed note (⇧⌘T).
+
+<img src="docs/images/shot-tucked.jpg" alt="An open note, with two tucked notes as slim tabs along the screen edge" width="400">
+
+<img src="docs/images/shot-archive.png" alt="The archive window with a list of finished notes and a preview" width="620">
+
+**A welcome tour.** It opens the first time you launch Stackies and covers the buttons and shortcuts. Replay it any
+time from Settings or the Help menu. Every shortcut is also in the menu bar.
+
+<img src="docs/images/shot-tour.png" alt="The welcome tour explaining a note's buttons" width="460">
+
+**Local and private.** Everything lives in one JSON file on your Mac, at
+`~/Library/Application Support/Stackies/notes.json`.
 
 ## Install
 
-**Requirements:** macOS 14 (Sonoma) or later, and Xcode or the Swift toolchain (the package uses
-`swift-tools-version:5.10`). The app is built with the current macOS SDK so it gets the modern system
-look (Liquid Glass) on macOS 26 and later.
+There's no download yet, so build it from source. You need macOS 14 or later and Xcode or the Swift toolchain.
 
 ```sh
 git clone https://github.com/kylepollina/stackies.git
 cd stackies
-./scripts/build.sh --install
+./scripts/build.sh --install   # builds Stackies and installs it to /Applications
+open /Applications/Stackies.app
 ```
 
-That builds `build/Stackies.app` and copies it to `/Applications`. Leave off `--install` to build
-without copying:
-
-```sh
-./scripts/build.sh        # produces build/Stackies.app
-open build/Stackies.app
-```
-
-The app is ad-hoc signed (no Apple Developer account needed). If you copy it to another Mac,
-macOS Gatekeeper may ask you to right-click ▸ Open the first time.
-
-## Using Stackies
-
-Launch Stackies and press **⌘N** for a new note. Stackies has no main window: it lives in the Dock
-(right-click the Dock icon for New Note and Show All Notes), and closing the last note doesn't quit it.
-
-A taste of the markdown:
-
-```markdown
-# Today
-- [ ] Review pull requests ⏱25m 🍅
-  - [ ] Fix the **flaky** test
-- [x] Write the README
-> Small steps, done daily.
-```
-
-### Keyboard shortcuts
-
-| Action | Shortcut |
-|---|---|
-| New note | ⌘N |
-| Toggle checklist | ⌘L |
-| Mark done | ⌘↩ |
-| Bold / Italic / Strikethrough | ⌘B / ⌘I / ⇧⌘X |
-| Move item (with subtasks) up / down | ⌘↑ / ⌘↓ |
-| Keep on top | ⌘P |
-| Tuck away to the screen edge (click the tab to bring it back) | ⌘J |
-| Tuck all notes away / bring them all back | ⇧⌘J |
-| Start or pause a pomodoro on the item at the caret | ⌘T |
-| Note color | ⌘1–⌘7 (⌘0 for random) |
-| Archive note | ⌃⌘A |
-| Browse the archive (search, restore, delete) | ⌥⌘A |
-| Show all notes | ⇧⌘A |
-| Delete note (asks first) | ⇧⌘⌫ |
-| Reopen last closed or deleted note | ⇧⌘T |
-| Settings | ⌘, |
-
-### Pomodoro settings
-
-Open **Stackies ▸ Settings…** (⌘,) to set the focus length (default 25 min), break length (default
-5 min), the time after which a task is flagged, and the sounds for end of focus and end of break.
-
-### Where your notes live
-
-Notes are stored in `~/Library/Application Support/Stackies/notes.json`. Back that file up or sync it
-however you like. Pomodoro settings are kept in the app's preferences.
-
-## Project structure
-
-```
-Package.swift            Swift package (macOS 14+, one executable target)
-Sources/Stackies/
-  StackiesApp.swift        app entry point
-  AppDelegate.swift        menus, Dock menu, window management, Stage Manager handling
-  NoteWindowController.swift  one window per note: color, pinning, titlebar
-  NoteTextView.swift       text view: checkbox clicks, list continuation, smart paste, shortcuts
-  Markdown.swift           live markdown parsing and styling
-  TextKit.swift            custom text layout/drawing helpers
-  Note.swift, NoteStore.swift  the note model and its JSON persistence
-  Pomodoro.swift, PomodoroSound.swift, MenuBarTimer.swift  timers, sounds, menu bar item
-  TuckTab.swift            edge tabs for tucked notes
-  ArchiveView.swift        archive browser (SwiftUI)
-  SettingsView.swift       Settings window (SwiftUI)
-Resources/
-  Info.plist               app bundle metadata
-  Sounds/                  recorded singing-bowl chimes
-scripts/
-  build.sh                 builds, bundles, and ad-hoc signs build/Stackies.app
-  make-icon.swift          generates the app icon
-IDEAS.md                 ideas, decisions and known bugs
-```
-
-## Development
-
-```sh
-swift build               # debug build
-swift run Stackies        # run the debug build directly
-./scripts/build.sh        # full release bundle in build/
-```
-
-`scripts/build.sh` bundles the release binary, generates the icon on first run, copies the sounds,
-and re-stamps the binary with the real SDK version (SwiftPM records only the deployment target, which
-would otherwise put AppKit in compatibility mode with no Liquid Glass). It ends with an ad-hoc
-`codesign`. There are no automated tests yet; run the app and try your change.
-
-The README logo is generated by `swift scripts/make-logo.swift` (run from the repo root); it writes
-`docs/images/logo-light.png` and `logo-dark.png`.
-
-Open the folder in Xcode (File ▸ Open… on `Package.swift`) if you prefer an IDE.
+To build without installing, run `./scripts/build.sh`, which creates `build/Stackies.app`. Build this way rather than
+with `swift run` if you want the Liquid Glass look on macOS 26 and later.
 
 ## Known issues
 
-- **Autocorrect doesn't work.** Misspelled words are underlined in red, but typing `teh ` does not
-  become `the`. See the Bugs section of [IDEAS.md](IDEAS.md) for what has been tried.
-- Stage Manager and multi-display handling rely on workarounds for AppKit window behavior and may
-  misbehave on some setups; please report oddities.
+Autocorrect doesn't work in notes yet, and emoji have been reported not to insert. Details and other ideas are in
+[IDEAS.md](IDEAS.md).
 
-## Roadmap
-
-Not shipped, just ideas (full list in [IDEAS.md](IDEAS.md)): a Today view of every unchecked item,
-offering to archive fully checked notes, due dates and reminders, a weekly time summary, focus mode,
-quick search (⌘K), Markdown file export/sync, and Shortcuts actions.
+The landing page lives in [`docs/`](docs/).
 
 ## License
 
-Stackies is released under the [MIT License](LICENSE). The bundled sounds have their own
-licenses; see [Credits](#credits).
-
-## Credits
-
-Pomodoro sounds are CC0 recordings, trimmed for use as alerts:
+[MIT](LICENSE). The bundled sounds are CC0 recordings, trimmed for use as alerts:
 
 - Deep Bowl: [Singing Bowl - Soft Stick Meditative Hit](https://freesound.org/people/Rimych/sounds/616335/) by Rimych
 - Low Bowl: [Singing bowl, low and quiet](https://freesound.org/people/eliasheuninck/sounds/170672/) by eliasheuninck
