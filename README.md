@@ -32,11 +32,6 @@ archive (⌃⌘A), or bring back a closed note (⇧⌘T).
 
 <img src="docs/images/shot-archive.png" alt="The archive window with a list of finished notes and a preview" width="620">
 
-**A welcome tour.** It opens the first time you launch Stackies and covers the buttons and shortcuts. Replay it any
-time from Settings or the Help menu. Every shortcut is also in the menu bar.
-
-<img src="docs/images/shot-tour.png" alt="The welcome tour explaining a note's buttons" width="460">
-
 **Local and private.** Everything lives in one JSON file on your Mac, at
 `~/Library/Application Support/Stackies/notes.json`.
 
