@@ -9,6 +9,9 @@ struct SettingsView: View {
     @AppStorage(PomodoroSound.Event.focusDone.key) private var focusSound = PomodoroSound.Event.focusDone.defaultSound
     @AppStorage(PomodoroSound.Event.breakDone.key) private var breakSound = PomodoroSound.Event.breakDone.defaultSound
 
+    /// Reopens the welcome tour.
+    var onShowTour: () -> Void = {}
+
     var body: some View {
         Form {
             Section {
@@ -28,6 +31,12 @@ struct SettingsView: View {
             Section("Sounds") {
                 soundPicker("End of focus", selection: $focusSound)
                 soundPicker("End of break", selection: $breakSound)
+            }
+
+            Section("Help") {
+                LabeledContent("Welcome tour") {
+                    Button("Show Tour…", action: onShowTour)
+                }
             }
         }
         .formStyle(.grouped)

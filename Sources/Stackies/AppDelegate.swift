@@ -59,6 +59,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
             notes.forEach { show($0.id) }
         }
         NSApp.activate()
+        if !UserDefaults.standard.bool(forKey: OnboardingView.seenKey) { showOnboarding(nil) }
         NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification,
                                                object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.scheduleAnchorLayout() }
@@ -376,11 +377,49 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
         if open.isEmpty { all.forEach { $0.untuck() } } else { open.forEach { $0.tuck() } }
     }
 
+    private var onboardingWindow: NSWindow?
+
+    /// The welcome tour. Opens by itself on first launch; also reachable from Settings and the Help menu.
+    @objc func showOnboarding(_ sender: Any?) {
+        if onboardingWindow == nil {
+            let view = OnboardingView { [weak self] in self?.onboardingWindow?.close() }
+                .background(OnboardingBackground().ignoresSafeArea())
+            let hosting = NSHostingController(rootView: view)
+            hosting.sizingOptions = []
+            let window = NSWindow(contentViewController: hosting)
+            window.title = "Welcome to Stackies"
+            window.styleMask = [.titled, .closable, .fullSizeContentView]
+            window.titlebarAppearsTransparent = true
+            window.titleVisibility = .hidden
+            window.isMovableByWindowBackground = true
+            window.isOpaque = false
+            window.backgroundColor = .clear
+            window.isRestorable = false
+            window.tabbingMode = .disallowed
+            window.standardWindowButton(.miniaturizeButton)?.isHidden = true
+            window.standardWindowButton(.zoomButton)?.isHidden = true
+            window.isReleasedWhenClosed = false
+            window.setContentSize(OnboardingView.size)
+            window.center()
+            NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification,
+                                                   object: window, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    UserDefaults.standard.set(true, forKey: OnboardingView.seenKey)
+                    self?.onboardingWindow = nil // the next showing starts again from page one
+                }
+            }
+            onboardingWindow = window
+        }
+        NSApp.activate()
+        onboardingWindow?.makeKeyAndOrderFront(nil)
+    }
+
     private var settingsWindow: NSWindow?
 
     @objc func showSettings(_ sender: Any?) {
         if settingsWindow == nil {
-            let window = NSWindow(contentViewController: NSHostingController(rootView: SettingsView()))
+            let view = SettingsView { [weak self] in self?.showOnboarding(nil) }
+            let window = NSWindow(contentViewController: NSHostingController(rootView: view))
             window.title = "Settings"
             window.styleMask = [.titled, .closable]
             window.isReleasedWhenClosed = false
@@ -581,6 +620,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
         ])
         main.addItem(windowMenu)
         NSApp.windowsMenu = windowMenu.submenu
+
+        let helpMenu = submenu("Help", [item("Welcome Tour", #selector(showOnboarding(_:)))])
+        main.addItem(helpMenu)
+        NSApp.helpMenu = helpMenu.submenu
 
         return main
     }
